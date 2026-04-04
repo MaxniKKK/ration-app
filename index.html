@@ -89,6 +89,35 @@
       .btn-today{background:var(--accent);color:#000;}
       .btn-edit{background:transparent;color:var(--muted);border:1.5px solid var(--border);}
       .btn-edit.on{border-color:var(--accent2);color:var(--accent2);background:rgba(255,107,53,.08);}
+      .btn-icon{background:transparent;color:var(--muted);border:1.5px solid var(--border);width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:14px;flex-shrink:0;padding:0;}
+      .btn-icon:active{opacity:.6;}
+
+      /* PROGRESS OVERLAY */
+      .prog-overlay{position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:700;display:none;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:32px;}
+      .prog-overlay.on{display:flex;}
+      .prog-title{font-family:'Unbounded',sans-serif;font-size:14px;font-weight:700;color:var(--text);text-align:center;}
+      .prog-sub{font-size:12px;color:var(--muted);text-align:center;max-width:280px;line-height:1.5;min-height:36px;}
+      .prog-bar-wrap{width:100%;max-width:280px;height:4px;background:var(--border);border-radius:2px;overflow:hidden;}
+      .prog-bar{height:100%;background:var(--accent);border-radius:2px;transition:width .25s;}
+
+      /* CART MODAL */
+      .cart-modal{position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:600;display:none;align-items:flex-end;}
+      .cart-modal.on{display:flex;}
+      .cart-sheet{background:var(--card);border-radius:20px 20px 0 0;width:100%;max-height:82vh;display:flex;flex-direction:column;}
+      .cart-head{padding:16px 16px 12px;border-bottom:1px solid var(--border);flex-shrink:0;}
+      .cart-htop{display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;}
+      .cart-title{font-family:'Unbounded',sans-serif;font-size:14px;font-weight:800;}
+      .cart-close{background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1;padding:0;}
+      .cart-hsub{font-size:11px;color:var(--muted);}
+      .cart-body{overflow-y:auto;flex:1;padding:8px 16px 16px;}
+      .cart-item{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);}
+      .cart-item:last-child{border-bottom:none;}
+      .cart-iinfo{flex:1;min-width:0;}
+      .cart-iname{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+      .cart-ig{font-size:11px;color:var(--muted);margin-top:2px;}
+      .cart-ibtn{padding:5px 10px;background:var(--accent);border:none;border-radius:10px;font-family:'Unbounded',sans-serif;font-size:9px;font-weight:700;color:#000;cursor:pointer;white-space:nowrap;text-decoration:none;display:inline-block;}
+      .cart-footer{padding:12px 16px 24px;border-top:1px solid var(--border);flex-shrink:0;}
+      .cart-open-btn{width:100%;padding:13px;background:var(--accent);border:none;border-radius:13px;font-family:'Unbounded',sans-serif;font-size:12px;font-weight:700;color:#000;cursor:pointer;}
       .days-scroll{display:flex;gap:5px;overflow-x:visible;}
       .day-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:7px 4px;border-radius:11px;border:1.5px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;transition:all .2s;min-width:0;}
       .day-btn .ds{font-family:'Unbounded',sans-serif;font-size:8px;font-weight:700;text-transform:uppercase;}
@@ -365,12 +394,10 @@
             >
           </div>
           <div class="mh-btns">
-            <button class="btn-sm btn-today" onclick="goToday()">
-              Сьогодні
-            </button>
-            <button class="btn-sm btn-edit" id="btnEdit" onclick="toggleEdit()">
-              ✏️ Змінити
-            </button>
+            <button class="btn-icon" title="Автоплан з Сільпо" onclick="confirmAutoFill()">🤖</button>
+            <button class="btn-icon" title="Кошик" onclick="showShoppingList()">🛒</button>
+            <button class="btn-sm btn-today" onclick="goToday()">Сьогодні</button>
+            <button class="btn-sm btn-edit" id="btnEdit" onclick="toggleEdit()">✏️ Змінити</button>
           </div>
         </div>
         <div class="days-scroll" id="daysScroll"></div>
@@ -525,6 +552,31 @@
           <div style="text-align:center;padding:20px;color:var(--muted);font-size:12px">Введи назву і натисни Шукати</div>
         </div>
         <button class="msd-close" onclick="closeMSearch()">Закрити</button>
+      </div>
+    </div>
+
+    <!-- PROGRESS OVERLAY (auto-fill) -->
+    <div class="prog-overlay" id="progOverlay">
+      <div class="spin"></div>
+      <div class="prog-title" id="progTitle">Завантажуємо з Сільпо...</div>
+      <div class="prog-bar-wrap"><div class="prog-bar" id="progBar" style="width:0%"></div></div>
+      <div class="prog-sub" id="progSub"></div>
+    </div>
+
+    <!-- CART MODAL -->
+    <div class="cart-modal" id="cartModal" onclick="closeCartModal()">
+      <div class="cart-sheet" onclick="event.stopPropagation()">
+        <div class="cart-head">
+          <div class="cart-htop">
+            <span class="cart-title">🛒 Список покупок</span>
+            <button class="cart-close" onclick="closeCartModal()">×</button>
+          </div>
+          <div class="cart-hsub" id="cartSub">Продукти на тиждень з Сільпо</div>
+        </div>
+        <div class="cart-body" id="cartBody"></div>
+        <div class="cart-footer">
+          <button class="cart-open-btn" onclick="openAllInSilpo()">Відкрити всі в Сільпо ↗</button>
+        </div>
       </div>
     </div>
 
@@ -1767,6 +1819,177 @@
         }
         closeMSearch();
         renderMeals();
+      };
+
+      // ═══════════════════════════════
+      // AUTO-FILL FROM SILPO
+      // ═══════════════════════════════
+
+      window.confirmAutoFill = function() {
+        if (confirm('Автоматично завантажити КБЖУ для всіх продуктів тижня з Сільпо?\n\nЦе займе ~1-2 хвилини.')) {
+          autoFillWeek();
+        }
+      };
+
+      async function autoFillWeek() {
+        const overlay = document.getElementById('progOverlay');
+        const bar     = document.getElementById('progBar');
+        const title   = document.getElementById('progTitle');
+        const sub     = document.getElementById('progSub');
+        overlay.classList.add('on');
+        bar.style.width = '0%';
+
+        // Collect all items that need lookup (no kcal_per_100 yet)
+        const tasks = [];
+        for (const p of ['you', 'her']) {
+          for (let d = 0; d <= 6; d++) {
+            const dayData = MENU[p]?.[d];
+            if (!dayData) continue;
+            for (const mk of ['breakfast','snack1','lunch','snack2','dinner']) {
+              const meal = dayData[mk];
+              if (!meal?.items) continue;
+              meal.items.forEach((it, i) => {
+                if (it.n && it.kcal_per_100 == null) tasks.push({ p, d, mk, i, name: it.n });
+              });
+            }
+          }
+        }
+
+        // Deduplicate by name
+        const uniqueNames = [...new Set(tasks.map(t => t.name))];
+        const resolved = {};
+        let done = 0;
+
+        for (const name of uniqueNames) {
+          title.textContent = 'Шукаємо в Сільпо...';
+          sub.textContent = name;
+          bar.style.width = `${Math.round(done / uniqueNames.length * 100)}%`;
+
+          // Check FOODS cache first
+          const cKey = foodKey(name);
+          if (FOODS[cKey]) { resolved[name] = FOODS[cKey]; done++; continue; }
+
+          try {
+            const sr = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products?limit=5&search=${encodeURIComponent(name)}`, { headers: { accept: 'application/json' } });
+            const sd = await sr.json();
+            const items = (sd.items || []);
+            if (!items.length) { done++; continue; }
+
+            // Best match by keyword position
+            const ql = name.toLowerCase();
+            items.sort((a, b) => {
+              const ai = a.title.toLowerCase().indexOf(ql);
+              const bi = b.title.toLowerCase().indexOf(ql);
+              return (ai < 0 ? 9999 : ai) - (bi < 0 ? 9999 : bi);
+            });
+            const best = items[0];
+
+            // Fetch detail for nutrition
+            const dr = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products/${best.slug}`, { headers: { accept: 'application/json' } });
+            const detail = await dr.json();
+            const nutr = parseSilpoNutr(detail.attributeGroups);
+
+            if (nutr) {
+              const entry = { ...nutr, silpoId: best.id, silpoSlug: best.slug, silpoTitle: best.title, silpoPrice: best.displayPrice, silpoPriceRatio: best.displayRatio };
+              resolved[name] = entry;
+              FOODS[cKey] = nutr;
+              if (db) set(ref(db, 'racion/foods/' + cKey), nutr).catch(() => {});
+            }
+          } catch(e) {}
+          done++;
+        }
+
+        // Apply to all menu items
+        for (const task of tasks) {
+          const nutr = resolved[task.name];
+          if (!nutr) continue;
+          const item = MENU[task.p][task.d][task.mk].items[task.i];
+          item.kcal_per_100    = nutr.kcal;
+          item.protein_per_100 = nutr.protein;
+          item.fat_per_100     = nutr.fat;
+          item.carbs_per_100   = nutr.carbs;
+          if (nutr.silpoId)    { item.silpoId = nutr.silpoId; item.silpoSlug = nutr.silpoSlug; item.silpoPrice = nutr.silpoPrice; item.silpoPriceRatio = nutr.silpoPriceRatio; }
+        }
+
+        // Save
+        bar.style.width = '100%';
+        title.textContent = '✓ Готово!';
+        sub.textContent = `Завантажено дані для ${Object.keys(resolved).length} з ${uniqueNames.length} продуктів`;
+        if (db) set(ref(db, 'racion/menu'), MENU).then(() => setSyncStatus('ok', 'Збережено ✓')).catch(() => {});
+        renderMeals();
+        renderTotals();
+        setTimeout(() => overlay.classList.remove('on'), 2000);
+      }
+
+      // ═══════════════════════════════
+      // SHOPPING LIST / CART
+      // ═══════════════════════════════
+
+      function buildShoppingList() {
+        const map = {};
+        for (const p of ['you', 'her']) {
+          for (let d = 0; d <= 6; d++) {
+            const dayData = MENU[p]?.[d];
+            if (!dayData) continue;
+            for (const mk of ['breakfast','snack1','lunch','snack2','dinner']) {
+              const meal = dayData[mk];
+              if (!meal?.items) continue;
+              for (const it of meal.items) {
+                if (!it.n) continue;
+                const key = it.silpoSlug || it.n.toLowerCase().trim();
+                const g = parseG(it.g);
+                if (!map[key]) {
+                  map[key] = { name: it.n, silpoSlug: it.silpoSlug || null, silpoId: it.silpoId || null, price: it.silpoPrice || null, priceRatio: it.silpoPriceRatio || 'шт', totalG: 0, days: 0 };
+                }
+                map[key].totalG += g;
+                map[key].days++;
+              }
+            }
+          }
+        }
+        return Object.values(map).sort((a, b) => a.name.localeCompare(b.name, 'uk'));
+      }
+
+      window.showShoppingList = function() {
+        const list = buildShoppingList();
+        const body = document.getElementById('cartBody');
+        const sub  = document.getElementById('cartSub');
+        const withSilpo = list.filter(i => i.silpoSlug).length;
+        sub.textContent = `${list.length} продуктів • ${withSilpo} є в Сільпо`;
+
+        if (!list.length) {
+          body.innerHTML = `<div style="text-align:center;padding:30px;color:var(--muted);font-size:13px">Немає продуктів у раціоні.<br>Натисни 🤖 щоб заповнити з Сільпо.</div>`;
+        } else {
+          body.innerHTML = list.map(item => {
+            const gText = item.totalG > 0 ? `${item.totalG}г на тиждень` : `${item.days} разів`;
+            const priceText = item.price ? ` · ${item.price} грн/${item.priceRatio}` : '';
+            const btn = item.silpoSlug
+              ? `<a class="cart-ibtn" href="https://silpo.ua/product/${item.silpoSlug}" target="_blank">Відкрити ↗</a>`
+              : `<span style="font-size:11px;color:var(--muted)">Немає в Сільпо</span>`;
+            return `<div class="cart-item">
+              <div class="cart-iinfo">
+                <div class="cart-iname">${item.name}</div>
+                <div class="cart-ig">${gText}${priceText}</div>
+              </div>
+              ${btn}
+            </div>`;
+          }).join('');
+        }
+        document.getElementById('cartModal').classList.add('on');
+      };
+
+      window.closeCartModal = function() {
+        document.getElementById('cartModal').classList.remove('on');
+      };
+
+      window.openAllInSilpo = function() {
+        const list = buildShoppingList().filter(i => i.silpoSlug);
+        if (!list.length) { showToast('Немає продуктів з Сільпо в раціоні'); return; }
+        // Open first 5 in new tabs (browsers block mass tab opening after 1)
+        list.slice(0, 1).forEach(item => {
+          window.open(`https://silpo.ua/product/${item.silpoSlug}`, '_blank');
+        });
+        showToast(`Відкрито Сільпо. Решту ${list.length - 1} — натискай "Відкрити ↗" по одному`);
       };
 
       // ═══════════════════════════════
