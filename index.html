@@ -652,6 +652,99 @@
         { key: "dinner", name: "Вечеря", time: "19:00", ico: "🌙", cls: "id" },
       ];
 
+      // ── ТИЖНЕВИЙ ПЛАН (складено для Ти ~2200 ккал / Вона ~1800 ккал) ──────────
+      // Усі грами вказані точно, без "шт"/"яйця" щоб parseG завжди давав правильне
+      const PLAN_TEMPLATE = {
+        you: {
+          1:{ totals:{kcal:2200,protein:175,fat:70,carbs:218},
+            breakfast:{kcal:0,items:[{n:'Вівсяна каша',g:'80г'},{n:'Яйця курячі',g:'110г'},{n:'Банан',g:'120г'}]},
+            snack1:   {kcal:0,items:[{n:'Грецький горіх',g:'30г'},{n:'Яблуко',g:'150г'}]},
+            lunch:    {kcal:0,items:[{n:'Куряча грудка філе',g:'220г'},{n:'Гречка',g:'100г'},{n:'Огірок свіжий',g:'150г'}]},
+            snack2:   {kcal:0,items:[{n:'Кефір 1%',g:'250г'},{n:'Хліб цільнозерновий',g:'60г'}]},
+            dinner:   {kcal:0,items:[{n:'Лосось',g:'200г'},{n:'Броколі',g:'200г'}]}},
+          2:{ totals:{kcal:2200,protein:175,fat:70,carbs:218},
+            breakfast:{kcal:0,items:[{n:'Яйця курячі',g:'165г'},{n:'Помідор',g:'150г'},{n:'Хліб цільнозерновий',g:'60г'}]},
+            snack1:   {kcal:0,items:[{n:'Сир кисломолочний 5%',g:'150г'},{n:'Мед',g:'20г'}]},
+            lunch:    {kcal:0,items:[{n:'Яловичина нежирна',g:'200г'},{n:'Рис',g:'100г'},{n:'Огірок свіжий',g:'100г'}]},
+            snack2:   {kcal:0,items:[{n:'Мигдаль',g:'30г'},{n:'Груша',g:'150г'}]},
+            dinner:   {kcal:0,items:[{n:'Куряча грудка філе',g:'200г'},{n:'Цвітна капуста',g:'200г'}]}},
+          3:{ totals:{kcal:2200,protein:175,fat:70,carbs:218},
+            breakfast:{kcal:0,items:[{n:'Гречана каша',g:'100г'},{n:'Яйця курячі',g:'110г'},{n:'Огірок свіжий',g:'150г'}]},
+            snack1:   {kcal:0,items:[{n:'Йогурт грецький',g:'150г'},{n:'Чорниця',g:'80г'}]},
+            lunch:    {kcal:0,items:[{n:'Тунець у власному соку',g:'185г'},{n:'Картопля',g:'200г'},{n:'Зелений горошок',g:'100г'}]},
+            snack2:   {kcal:0,items:[{n:'Кефір 1%',g:'200г'},{n:'Банан',g:'120г'}]},
+            dinner:   {kcal:0,items:[{n:'Куряча грудка філе',g:'200г'},{n:'Спаржева квасоля',g:'200г'}]}},
+          4:{ totals:{kcal:2200,protein:175,fat:70,carbs:218},
+            breakfast:{kcal:0,items:[{n:'Вівсяна каша',g:'80г'},{n:'Яйця курячі',g:'110г'},{n:'Чорниця',g:'80г'},{n:'Мед',g:'15г'}]},
+            snack1:   {kcal:0,items:[{n:'Хліб цільнозерновий',g:'60г'},{n:'Арахісова паста',g:'30г'}]},
+            lunch:    {kcal:0,items:[{n:'Свинина нежирна',g:'200г'},{n:'Макарони',g:'100г'},{n:'Помідор',g:'150г'}]},
+            snack2:   {kcal:0,items:[{n:'Сир кисломолочний 5%',g:'150г'},{n:'Яблуко',g:'150г'}]},
+            dinner:   {kcal:0,items:[{n:'Лосось',g:'200г'},{n:'Спаржева квасоля',g:'200г'}]}},
+          5:{ totals:{kcal:2200,protein:175,fat:70,carbs:218},
+            breakfast:{kcal:0,items:[{n:'Яйця курячі',g:'165г'},{n:'Авокадо',g:'100г'},{n:'Помідор',g:'150г'}]},
+            snack1:   {kcal:0,items:[{n:'Грецький горіх',g:'30г'},{n:'Груша',g:'150г'}]},
+            lunch:    {kcal:0,items:[{n:'Куряча грудка філе',g:'220г'},{n:'Рис',g:'100г'},{n:'Броколі',g:'100г'}]},
+            snack2:   {kcal:0,items:[{n:'Кефір 1%',g:'200г'},{n:'Банан',g:'120г'}]},
+            dinner:   {kcal:0,items:[{n:'Форель',g:'200г'},{n:'Картопля',g:'150г'}]}},
+          6:{ totals:{kcal:2200,protein:175,fat:70,carbs:218},
+            breakfast:{kcal:0,items:[{n:'Гречана каша',g:'100г'},{n:'Яйця курячі',g:'110г'},{n:'Банан',g:'120г'}]},
+            snack1:   {kcal:0,items:[{n:'Йогурт грецький',g:'150г'},{n:'Полуниця',g:'100г'}]},
+            lunch:    {kcal:0,items:[{n:'Яловичина нежирна',g:'200г'},{n:'Гречка',g:'100г'},{n:'Огірок свіжий',g:'150г'}]},
+            snack2:   {kcal:0,items:[{n:'Мигдаль',g:'30г'},{n:'Яблуко',g:'150г'}]},
+            dinner:   {kcal:0,items:[{n:'Куряча грудка філе',g:'200г'},{n:'Цвітна капуста',g:'200г'}]}},
+          0:{ totals:{kcal:2200,protein:175,fat:70,carbs:218},
+            breakfast:{kcal:0,items:[{n:'Вівсяна каша',g:'80г'},{n:'Яйця курячі',g:'110г'},{n:'Полуниця',g:'100г'}]},
+            snack1:   {kcal:0,items:[{n:'Сир кисломолочний 5%',g:'150г'},{n:'Мед',g:'20г'}]},
+            lunch:    {kcal:0,items:[{n:'Лосось',g:'200г'},{n:'Рис',g:'100г'},{n:'Броколі',g:'150г'}]},
+            snack2:   {kcal:0,items:[{n:'Грецький горіх',g:'30г'},{n:'Банан',g:'120г'}]},
+            dinner:   {kcal:0,items:[{n:'Куряча грудка філе',g:'180г'},{n:'Спаржева квасоля',g:'200г'}]}},
+        },
+        her: {
+          1:{ totals:{kcal:1800,protein:140,fat:60,carbs:180},
+            breakfast:{kcal:0,items:[{n:'Вівсяна каша',g:'60г'},{n:'Яйця курячі',g:'55г'},{n:'Банан',g:'100г'}]},
+            snack1:   {kcal:0,items:[{n:'Мигдаль',g:'20г'},{n:'Яблуко',g:'150г'}]},
+            lunch:    {kcal:0,items:[{n:'Куряча грудка філе',g:'180г'},{n:'Гречка',g:'80г'},{n:'Огірок свіжий',g:'150г'}]},
+            snack2:   {kcal:0,items:[{n:'Кефір 1%',g:'200г'}]},
+            dinner:   {kcal:0,items:[{n:'Лосось',g:'150г'},{n:'Броколі',g:'200г'}]}},
+          2:{ totals:{kcal:1800,protein:140,fat:60,carbs:180},
+            breakfast:{kcal:0,items:[{n:'Яйця курячі',g:'110г'},{n:'Помідор',g:'150г'},{n:'Хліб цільнозерновий',g:'40г'}]},
+            snack1:   {kcal:0,items:[{n:'Сир кисломолочний 5%',g:'150г'},{n:'Мед',g:'15г'}]},
+            lunch:    {kcal:0,items:[{n:'Куряча грудка філе',g:'180г'},{n:'Рис',g:'80г'},{n:'Огірок свіжий',g:'100г'}]},
+            snack2:   {kcal:0,items:[{n:'Груша',g:'150г'}]},
+            dinner:   {kcal:0,items:[{n:'Куряча грудка філе',g:'150г'},{n:'Цвітна капуста',g:'200г'}]}},
+          3:{ totals:{kcal:1800,protein:140,fat:60,carbs:180},
+            breakfast:{kcal:0,items:[{n:'Гречана каша',g:'80г'},{n:'Яйця курячі',g:'55г'},{n:'Огірок свіжий',g:'150г'}]},
+            snack1:   {kcal:0,items:[{n:'Йогурт грецький',g:'150г'}]},
+            lunch:    {kcal:0,items:[{n:'Тунець у власному соку',g:'150г'},{n:'Картопля',g:'150г'},{n:'Зелений горошок',g:'80г'}]},
+            snack2:   {kcal:0,items:[{n:'Кефір 1%',g:'200г'},{n:'Банан',g:'100г'}]},
+            dinner:   {kcal:0,items:[{n:'Куряча грудка філе',g:'150г'},{n:'Спаржева квасоля',g:'200г'}]}},
+          4:{ totals:{kcal:1800,protein:140,fat:60,carbs:180},
+            breakfast:{kcal:0,items:[{n:'Вівсяна каша',g:'60г'},{n:'Яйця курячі',g:'55г'},{n:'Чорниця',g:'80г'}]},
+            snack1:   {kcal:0,items:[{n:'Хліб цільнозерновий',g:'40г'},{n:'Арахісова паста',g:'20г'}]},
+            lunch:    {kcal:0,items:[{n:'Куряча грудка філе',g:'180г'},{n:'Макарони',g:'80г'},{n:'Помідор',g:'100г'}]},
+            snack2:   {kcal:0,items:[{n:'Сир кисломолочний 5%',g:'130г'},{n:'Яблуко',g:'130г'}]},
+            dinner:   {kcal:0,items:[{n:'Лосось',g:'150г'},{n:'Спаржева квасоля',g:'200г'}]}},
+          5:{ totals:{kcal:1800,protein:140,fat:60,carbs:180},
+            breakfast:{kcal:0,items:[{n:'Яйця курячі',g:'110г'},{n:'Авокадо',g:'80г'},{n:'Помідор',g:'100г'}]},
+            snack1:   {kcal:0,items:[{n:'Грецький горіх',g:'20г'},{n:'Груша',g:'150г'}]},
+            lunch:    {kcal:0,items:[{n:'Куряча грудка філе',g:'180г'},{n:'Рис',g:'80г'},{n:'Броколі',g:'100г'}]},
+            snack2:   {kcal:0,items:[{n:'Кефір 1%',g:'200г'}]},
+            dinner:   {kcal:0,items:[{n:'Форель',g:'150г'},{n:'Картопля',g:'150г'}]}},
+          6:{ totals:{kcal:1800,protein:140,fat:60,carbs:180},
+            breakfast:{kcal:0,items:[{n:'Гречана каша',g:'80г'},{n:'Яйця курячі',g:'55г'},{n:'Банан',g:'100г'}]},
+            snack1:   {kcal:0,items:[{n:'Йогурт грецький',g:'150г'},{n:'Полуниця',g:'100г'}]},
+            lunch:    {kcal:0,items:[{n:'Куряча грудка філе',g:'180г'},{n:'Гречка',g:'80г'},{n:'Огірок свіжий',g:'150г'}]},
+            snack2:   {kcal:0,items:[{n:'Мигдаль',g:'20г'},{n:'Яблуко',g:'130г'}]},
+            dinner:   {kcal:0,items:[{n:'Куряча грудка філе',g:'150г'},{n:'Цвітна капуста',g:'200г'}]}},
+          0:{ totals:{kcal:1800,protein:140,fat:60,carbs:180},
+            breakfast:{kcal:0,items:[{n:'Вівсяна каша',g:'60г'},{n:'Яйця курячі',g:'55г'},{n:'Полуниця',g:'100г'}]},
+            snack1:   {kcal:0,items:[{n:'Сир кисломолочний 5%',g:'130г'},{n:'Мед',g:'15г'}]},
+            lunch:    {kcal:0,items:[{n:'Лосось',g:'150г'},{n:'Рис',g:'80г'},{n:'Броколі',g:'150г'}]},
+            snack2:   {kcal:0,items:[{n:'Грецький горіх',g:'20г'},{n:'Банан',g:'100г'}]},
+            dinner:   {kcal:0,items:[{n:'Куряча грудка філе',g:'150г'},{n:'Спаржева квасоля',g:'200г'}]}},
+        },
+      };
+
       const DEF_MENU = {
         you: {
           1: {
@@ -1652,10 +1745,14 @@
         return n.toLowerCase().trim().replace(/[.#$[\]/\s]+/g, "_");
       }
 
-      // Parse gram value from any string: "220г", "2 шт", "150" → number
+      // Parse gram value from any string: "220г", "2шт", "4 яйця", "150" → grams
       function parseG(g) {
         if (!g && g !== 0) return 0;
-        return parseFloat(String(g).replace(/[^\d.]/g, "")) || 0;
+        const s = String(g).trim().toLowerCase();
+        const n = parseFloat(s.replace(/[^\d.]/g, "")) || 0;
+        if (!n) return 0;
+        if (/яйц/.test(s)) return Math.round(n * 55); // 1 яйце ≈ 55г
+        return n;
       }
 
       // Calculate nutrition for a meal from its items' Silpo data
@@ -1826,18 +1923,39 @@
       // ═══════════════════════════════
 
       window.confirmAutoFill = function() {
-        if (confirm('Автоматично завантажити КБЖУ для всіх продуктів тижня з Сільпо?\n\nЦе займе ~1-2 хвилини.')) {
-          autoFillWeek();
-        }
+        const choice = confirm(
+          '🤖 Автоплан\n\n' +
+          'OK → Скласти НОВИЙ тижневий план і завантажити КБЖУ з Сільпо\n' +
+          'Скасувати → Тільки оновити КБЖУ для наявних продуктів'
+        );
+        autoFillWeek(choice);
       };
 
-      async function autoFillWeek() {
+      function applyPlanTemplate() {
+        for (const p of ['you', 'her']) {
+          for (const d of [0,1,2,3,4,5,6]) {
+            if (!PLAN_TEMPLATE[p]?.[d]) continue;
+            if (!MENU[p]) MENU[p] = {};
+            MENU[p][d] = JSON.parse(JSON.stringify(PLAN_TEMPLATE[p][d]));
+          }
+        }
+      }
+
+      async function autoFillWeek(applyTemplate = false) {
         const overlay = document.getElementById('progOverlay');
         const bar     = document.getElementById('progBar');
         const title   = document.getElementById('progTitle');
         const sub     = document.getElementById('progSub');
         overlay.classList.add('on');
         bar.style.width = '0%';
+
+        if (applyTemplate) {
+          title.textContent = 'Складаємо план...';
+          sub.textContent = 'Застосовуємо тижневий раціон';
+          applyPlanTemplate();
+          renderMeals();
+          renderTotals();
+        }
 
         // Collect all items that need lookup (no kcal_per_100 yet)
         const tasks = [];
