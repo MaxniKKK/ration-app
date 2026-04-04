@@ -170,6 +170,27 @@
       .bsave:disabled{opacity:.5;}
       .bcancel{padding:12px 13px;background:var(--card2);border:none;border-radius:10px;font-family:'Unbounded',sans-serif;font-size:11px;font-weight:700;color:var(--muted);cursor:pointer;}
 
+      /* ── EDIT FOOD SEARCH ── */
+      .esrch{background:rgba(200,245,74,.08);border:1px solid rgba(200,245,74,.2);border-radius:6px;color:var(--accent);font-size:11px;width:26px;height:26px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;}
+      .item-kcal{font-size:9px;color:var(--accent);font-family:'Unbounded',sans-serif;flex-shrink:0;white-space:nowrap;}
+      .msearch{display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:500;}
+      .msearch.on{display:flex;flex-direction:column;justify-content:flex-end;}
+      .msd{background:#141414;border-radius:18px 18px 0 0;border-top:1px solid var(--border);max-height:78vh;display:flex;flex-direction:column;}
+      .msd-drag{width:38px;height:3px;background:var(--border);border-radius:2px;margin:11px auto 0;flex-shrink:0;}
+      .msd-head{padding:10px 12px;border-bottom:1px solid var(--border);display:flex;gap:7px;flex-shrink:0;}
+      .msd-inp{flex:1;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-family:'Golos Text',sans-serif;font-size:13px;outline:none;}
+      .msd-inp:focus{border-color:var(--accent);}
+      .msd-btn{background:var(--accent);border:none;border-radius:8px;padding:9px 13px;font-family:'Unbounded',sans-serif;font-size:10px;font-weight:700;color:#000;cursor:pointer;white-space:nowrap;}
+      .msd-btn:disabled{opacity:.5;}
+      .msd-res{overflow-y:auto;padding:8px 12px 4px;flex:1;}
+      .msd-item{padding:10px 11px;border-radius:9px;background:var(--card);border:1px solid var(--border);margin-bottom:6px;cursor:pointer;transition:background .15s;}
+      .msd-item:active{background:var(--card2);}
+      .msd-iname{font-size:12px;font-weight:600;margin-bottom:4px;}
+      .msd-imac{display:flex;gap:10px;font-size:10px;color:var(--muted);font-family:'Unbounded',sans-serif;}
+      .msd-imac span:first-child{color:var(--accent);}
+      .msd-close{display:block;margin:6px 12px 16px;padding:10px;background:var(--card2);border:none;border-radius:9px;font-family:'Unbounded',sans-serif;font-size:10px;color:var(--muted);cursor:pointer;width:calc(100% - 24px);flex-shrink:0;}
+      .auto-lbl{font-size:9px;color:var(--accent);font-family:'Unbounded',sans-serif;}
+
       /* ── DIARY SCREEN ── */
       .cal-header{padding:18px 16px 14px;background:var(--bg);border-bottom:1px solid var(--border);}
       .ch-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
@@ -488,6 +509,21 @@
           </div>
         </div>
         <button class="mod-close" onclick="closeMo()">Закрити</button>
+      </div>
+    </div>
+
+    <!-- EDIT FOOD SEARCH MINI-MODAL -->
+    <div class="msearch" id="msearch" onclick="closeMSearch()">
+      <div class="msd" onclick="event.stopPropagation()">
+        <div class="msd-drag"></div>
+        <div class="msd-head">
+          <input class="msd-inp" id="msInp" placeholder="Назва продукту..." onkeydown="if(event.key==='Enter')doMSearch()">
+          <button class="msd-btn" onclick="doMSearch()">Шукати</button>
+        </div>
+        <div class="msd-res" id="msRes">
+          <div style="text-align:center;padding:20px;color:var(--muted);font-size:12px">Введи назву і натисни Шукати</div>
+        </div>
+        <button class="msd-close" onclick="closeMSearch()">Закрити</button>
       </div>
     </div>
 
@@ -1142,7 +1178,8 @@
       // ═══════════════════════════════
       let db = null,
         MENU = JSON.parse(JSON.stringify(DEF_MENU)),
-        DIARY = {};
+        DIARY = {},
+        FOODS = {};
       let curDay = new Date().getDay(),
         person = "you",
         editMode = false;
@@ -1150,6 +1187,7 @@
         calM = new Date().getMonth(),
         calView = "month",
         selDate = null;
+      let _msCtx = null, _msFoods = [];
 
       // ═══════════════════════════════
       // FIREBASE SETUP
@@ -1198,6 +1236,12 @@
           onValue(diaryRef, (snap) => {
             const val = snap.val();
             if (val) DIARY = val;
+          });
+          // Load foods cache
+          const foodsRef = ref(db, "racion/foods");
+          onValue(foodsRef, (snap) => {
+            const val = snap.val();
+            if (val) FOODS = val;
           });
           // Show app
           document.getElementById("loader").classList.add("hide");
@@ -1429,20 +1473,28 @@
           card.id = "mc_" + m.key;
           let body = "";
           if (editMode) {
-            const rows = meal.items
-              .map(
-                (it, i) => `
+            const rows = meal.items.map((it, i) => {
+              const hasN = it.kcal_per_100 != null && parseFloat(it.g) > 0;
+              const iKc = hasN ? Math.round(parseFloat(it.g) * it.kcal_per_100 / 100) : 0;
+              return `
         <div class="erow">
-          <input class="ein" value="${it.n || ""}" placeholder="Продукт" oninput="upd('${m.key}',${i},'n',this.value)">
-          <input class="ein sm" value="${it.g || ""}" placeholder="г" oninput="upd('${m.key}',${i},'g',this.value)">
+          <button class="esrch" onclick="openMSearch('${m.key}',${i})" title="Знайти продукт">🔍</button>
+          <input class="ein" value="${(it.n||'').replace(/"/g,'&quot;')}" placeholder="Продукт" oninput="upd('${m.key}',${i},'n',this.value)">
+          <input class="ein sm" value="${it.g||''}" placeholder="г" oninput="updG('${m.key}',${i},this.value)">
+          <span class="item-kcal" id="ikcal_${m.key}_${i}" ${!hasN?'style="display:none"':''}>${iKc}кк</span>
           <button class="bdel" onclick="delRow('${m.key}',${i})">✕</button>
-        </div>`,
-              )
-              .join("");
+        </div>`;
+            }).join("");
+            const allAuto = meal.items.length > 0 && meal.items.every(it => it.kcal_per_100 != null && parseFloat(it.g) > 0);
+            const autoTotal = allAuto ? meal.items.reduce((s,it) => s + Math.round(parseFloat(it.g)*it.kcal_per_100/100), 0) : meal.kcal;
+            if (allAuto) meal.kcal = autoTotal;
             body = `<div class="mbody"><div class="eitems">${rows}</div>
         <div class="emf">
           <button class="badd" onclick="addRow('${m.key}')">+ Додати</button>
-          <div class="ek-wrap"><input class="ekc" value="${meal.kcal}" oninput="updKcal('${m.key}',this.value)"><span>ккал</span></div>
+          <div class="ek-wrap">
+            <input class="ekc" id="ekc_${m.key}" value="${autoTotal}" oninput="updKcal('${m.key}',this.value)" ${allAuto?'style="border-color:var(--accent);color:var(--accent)"':''}>
+            <span>${allAuto?'<span class="auto-lbl">авто</span> ':''} ккал</span>
+          </div>
         </div></div>`;
           } else {
             const lis = meal.items
@@ -1499,6 +1551,116 @@
               });
           }
         }, 80);
+      };
+
+      // ═══════════════════════════════
+      // FOOD AUTO-CALC
+      // ═══════════════════════════════
+      function foodKey(n) {
+        return n.toLowerCase().trim().replace(/[.#$[\]/\s]+/g, "_");
+      }
+
+      function recalcMealKcal(mk) {
+        const meal = MENU[person][curDay][mk];
+        const allAuto = meal.items.length > 0 && meal.items.every(it => it.kcal_per_100 != null && parseFloat(it.g) > 0);
+        if (!allAuto) return;
+        const total = meal.items.reduce((s, it) => s + Math.round(parseFloat(it.g) * it.kcal_per_100 / 100), 0);
+        meal.kcal = total;
+        const el = document.getElementById("mkc_" + mk);
+        if (el) el.textContent = total + " ккал";
+        const ekc = document.getElementById("ekc_" + mk);
+        if (ekc) { ekc.value = total; ekc.style.borderColor = "var(--accent)"; ekc.style.color = "var(--accent)"; }
+      }
+
+      window.updG = function(mk, i, v) {
+        MENU[person][curDay][mk].items[i].g = v;
+        const iEl = document.getElementById("ikcal_" + mk + "_" + i);
+        if (iEl) {
+          const it = MENU[person][curDay][mk].items[i];
+          if (it.kcal_per_100 && parseFloat(v) > 0) {
+            iEl.textContent = Math.round(parseFloat(v) * it.kcal_per_100 / 100) + "кк";
+            iEl.style.display = "";
+          } else {
+            iEl.style.display = "none";
+          }
+        }
+        recalcMealKcal(mk);
+      };
+
+      window.openMSearch = function(mk, i) {
+        _msCtx = { mk, i };
+        const cur = MENU[person][curDay][mk].items[i];
+        document.getElementById("msInp").value = cur.n || "";
+        document.getElementById("msRes").innerHTML = "";
+        document.getElementById("msearch").classList.add("on");
+        setTimeout(() => document.getElementById("msInp").focus(), 120);
+      };
+
+      window.closeMSearch = function() {
+        document.getElementById("msearch").classList.remove("on");
+        _msCtx = null;
+      };
+
+      window.doMSearch = async function() {
+        const q = document.getElementById("msInp").value.trim();
+        if (!q) return;
+        const res = document.getElementById("msRes");
+        const btn = document.querySelector(".msd-btn");
+        btn.disabled = true;
+        res.innerHTML = `<div style="text-align:center;padding:20px;color:var(--muted);font-size:12px"><div class="spin" style="margin:0 auto 8px"></div><br>Шукаємо...</div>`;
+        try {
+          const r = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&action=process&json=1&page_size=15`);
+          const data = await r.json();
+          const prods = (data.products || []).filter(p => p.nutriments && (p.nutriments["energy-kcal_100g"] || 0) > 0);
+          if (!prods.length) {
+            res.innerHTML = `<div style="text-align:center;padding:20px;color:var(--muted);font-size:12px">😔 Нічого не знайдено</div>`;
+          } else {
+            _msFoods = prods;
+            res.innerHTML = prods.slice(0, 12).map((p, idx) => {
+              const nm = p.product_name_uk || p.product_name_ru || p.product_name || "Без назви";
+              const nt = p.nutriments;
+              const kc = Math.round(nt["energy-kcal_100g"] || 0);
+              const pr = Math.round((nt["proteins_100g"] || 0) * 10) / 10;
+              const ft = Math.round((nt["fat_100g"] || 0) * 10) / 10;
+              const cb = Math.round((nt["carbohydrates_100g"] || 0) * 10) / 10;
+              return `<div class="msd-item" onclick="selectFoodForEdit(${idx})">
+                <div class="msd-iname">${nm}${p.brands ? ` <span style="color:var(--muted);font-weight:400">${p.brands}</span>` : ""}</div>
+                <div class="msd-imac"><span>${kc} ккал</span><span>Б ${pr}г</span><span>Ж ${ft}г</span><span>В ${cb}г</span></div>
+              </div>`;
+            }).join("");
+          }
+        } catch(e) {
+          res.innerHTML = `<div style="text-align:center;padding:20px;color:var(--muted);font-size:12px">⚠️ Помилка мережі</div>`;
+        }
+        btn.disabled = false;
+      };
+
+      window.selectFoodForEdit = function(idx) {
+        if (!_msCtx) return;
+        const p = _msFoods[idx];
+        const nm = p.product_name_uk || p.product_name_ru || p.product_name || "Без назви";
+        const nt = p.nutriments;
+        const nutr = {
+          kcal: Math.round(nt["energy-kcal_100g"] || 0),
+          protein: Math.round((nt["proteins_100g"] || 0) * 10) / 10,
+          fat: Math.round((nt["fat_100g"] || 0) * 10) / 10,
+          carbs: Math.round((nt["carbohydrates_100g"] || 0) * 10) / 10,
+        };
+        const { mk, i } = _msCtx;
+        const item = MENU[person][curDay][mk].items[i];
+        item.n = nm;
+        item.kcal_per_100 = nutr.kcal;
+        item.protein_per_100 = nutr.protein;
+        item.fat_per_100 = nutr.fat;
+        item.carbs_per_100 = nutr.carbs;
+        // Cache to Firebase
+        if (db) {
+          const key = foodKey(nm);
+          FOODS[key] = nutr;
+          set(ref(db, "racion/foods/" + key), nutr).catch(() => {});
+        }
+        closeMSearch();
+        renderMeals();
       };
 
       // ═══════════════════════════════
