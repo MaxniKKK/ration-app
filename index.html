@@ -89,9 +89,8 @@
       .btn-today{background:var(--accent);color:#000;}
       .btn-edit{background:transparent;color:var(--muted);border:1.5px solid var(--border);}
       .btn-edit.on{border-color:var(--accent2);color:var(--accent2);background:rgba(255,107,53,.08);}
-      .days-scroll{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;}
-      .days-scroll::-webkit-scrollbar{display:none;}
-      .day-btn{flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 11px;border-radius:11px;border:1.5px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;transition:all .2s;}
+      .days-scroll{display:flex;gap:5px;overflow-x:visible;}
+      .day-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:7px 4px;border-radius:11px;border:1.5px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;transition:all .2s;min-width:0;}
       .day-btn .ds{font-family:'Unbounded',sans-serif;font-size:8px;font-weight:700;text-transform:uppercase;}
       .day-btn .da{font-size:14px;font-weight:700;line-height:1;color:var(--text);}
       .day-btn.active{background:var(--accent);border-color:var(--accent);}
@@ -1364,16 +1363,22 @@
       };
 
       function renderDays() {
-        const sc = document.getElementById("daysScroll"),
-          tod = new Date().getDay();
+        const sc = document.getElementById("daysScroll");
+        const now = new Date();
+        const todayDow = now.getDay(); // 0=Sun
         sc.innerHTML = "";
         [1, 2, 3, 4, 5, 6, 0].forEach((d) => {
+          // calculate real calendar date for this weekday in the current week
+          const diff = d - todayDow;
+          const dt = new Date(now);
+          dt.setDate(now.getDate() + diff);
+          const dateNum = dt.getDate();
           const b = document.createElement("div");
           b.className =
             "day-btn" +
             (d === curDay ? " active" : "") +
-            (d === tod && d !== curDay ? " today" : "");
-          b.innerHTML = `<span class="ds">${DAYS_SH[d]}</span><span class="da">${DAYS[d].slice(0, 2)}</span>`;
+            (d === todayDow && d !== curDay ? " today" : "");
+          b.innerHTML = `<span class="ds">${DAYS_SH[d]}</span><span class="da">${dateNum}</span>`;
           b.onclick = () => {
             curDay = d;
             renderDays();
