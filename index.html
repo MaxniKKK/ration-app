@@ -1263,14 +1263,16 @@
         }
       }
 
-      // Check if config already saved
+      // Use saved config, or fall back to hardcoded FIREBASE_CONFIG, then show setup form
       const savedCfg = localStorage.getItem("fb_cfg");
-      if (savedCfg) {
+      const bootCfg = savedCfg ? JSON.parse(savedCfg) : (typeof FIREBASE_CONFIG !== "undefined" ? FIREBASE_CONFIG : null);
+      if (bootCfg) {
         document.getElementById("setupScreen").classList.add("hide");
         try {
-          initFirebase(JSON.parse(savedCfg));
+          initFirebase(bootCfg);
         } catch (e) {
           document.getElementById("setupScreen").classList.remove("hide");
+          document.getElementById("loader").classList.add("hide");
         }
       } else {
         document.getElementById("loader").classList.add("hide");
