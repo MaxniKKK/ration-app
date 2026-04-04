@@ -1,0 +1,1735 @@
+<!doctype html>
+<html lang="uk">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, user-scalable=no"
+    />
+    <title>Раціон 🥗</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;600;800&family=Golos+Text:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- ════════════════════════════════════════════
+  🔥 FIREBASE CONFIG — ЗАМІНИ ЦІ ЗНАЧЕННЯ!
+  Інструкція нижче в коментарях
+════════════════════════════════════════════ -->
+    <script>
+      const FIREBASE_CONFIG = {
+        apiKey: "AIzaSyDkhceMuIMbpYH3HQK9E_qMO1FdbsXVPA0",
+        authDomain: "racion-app.firebaseapp.com",
+        databaseURL:
+          "https://racion-app-default-rtdb.europe-west1.firebasedatabase.app",
+        projectId: "racion-app",
+        storageBucket: "racion-app.firebasestorage.app",
+        messagingSenderId: "846197491563",
+        appId: "1:846197491563:web:77c24b32b887bbfa0dee2e",
+      };
+    </script>
+
+    <style>
+      :root{
+        --bg:#0a0a0a;--card:#161616;--card2:#1e1e1e;--card3:#242424;
+        --accent:#c8f54a;--accent2:#ff6b35;--blue:#7dd3fc;
+        --text:#f0f0f0;--muted:#555;--border:#252525;
+        --you:#c8f54a;--her:#ff6b35;
+      }
+      *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+      body{background:var(--bg);color:var(--text);font-family:'Golos Text',sans-serif;min-height:100vh;overflow-x:hidden;}
+
+      /* SETUP SCREEN */
+      .setup-screen{position:fixed;inset:0;background:var(--bg);z-index:999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px;text-align:center;}
+      .setup-screen.hide{display:none;}
+      .setup-logo{font-family:'Unbounded',sans-serif;font-size:32px;font-weight:800;color:var(--accent);margin-bottom:8px;}
+      .setup-sub{font-size:14px;color:var(--muted);margin-bottom:32px;}
+      .setup-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:20px;width:100%;max-width:400px;text-align:left;}
+      .setup-label{font-family:'Unbounded',sans-serif;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;margin-top:16px;}
+      .setup-label:first-of-type{margin-top:0;}
+      .setup-inp{width:100%;background:#0d0d0d;border:1px solid var(--border);border-radius:9px;padding:11px 13px;color:var(--text);font-family:'Golos Text',sans-serif;font-size:14px;outline:none;margin-bottom:4px;}
+      .setup-inp:focus{border-color:var(--accent);}
+      .setup-btn{width:100%;padding:14px;background:var(--accent);border:none;border-radius:11px;font-family:'Unbounded',sans-serif;font-size:13px;font-weight:700;color:#000;cursor:pointer;margin-top:20px;}
+      .setup-hint{font-size:11px;color:var(--muted);margin-top:12px;line-height:1.6;}
+      .setup-hint a{color:var(--accent);text-decoration:none;}
+
+      /* LOADER */
+      .loader{position:fixed;inset:0;background:var(--bg);z-index:998;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;transition:opacity .4s;}
+      .loader.hide{opacity:0;pointer-events:none;}
+      .loader-logo{font-family:'Unbounded',sans-serif;font-size:24px;font-weight:800;color:var(--accent);}
+      .loader-sub{font-size:12px;color:var(--muted);}
+      .spin{width:28px;height:28px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:sp .8s linear infinite;}
+      @keyframes sp{to{transform:rotate(360deg);}}
+
+      /* SYNC STATUS */
+      .sync-status{display:flex;align-items:center;gap:6px;font-size:10px;}
+      .sdot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex-shrink:0;}
+      .sdot.syncing{animation:pulse 1s ease-in-out infinite;}
+      .sdot.offline{background:#ef4444;}
+      @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.2;}}
+
+      /* NAV */
+      .nav-tabs{display:flex;background:var(--card);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:200;}
+      .nav-tab{flex:1;padding:13px 4px 11px;text-align:center;cursor:pointer;border-bottom:2px solid transparent;transition:all .2s;color:var(--muted);}
+      .nav-tab .ti{font-size:17px;display:block;margin-bottom:2px;}
+      .nav-tab span{font-family:'Unbounded',sans-serif;font-weight:600;font-size:8px;letter-spacing:.3px;}
+      .nav-tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+
+      /* SCREENS */
+      .screen{display:none;min-height:calc(100vh - 50px);padding-bottom:24px;}
+      .screen.active{display:block;}
+
+      /* ── MENU SCREEN ── */
+      .menu-header{padding:18px 16px 0;background:var(--bg);position:sticky;top:50px;z-index:100;border-bottom:1px solid var(--border);padding-bottom:13px;}
+      .mh-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:13px;}
+      .app-logo{font-family:'Unbounded',sans-serif;font-size:15px;font-weight:800;color:var(--accent);display:flex;align-items:center;gap:8px;}
+      .mh-btns{display:flex;gap:6px;}
+      .btn-sm{font-family:'Unbounded',sans-serif;font-size:9px;font-weight:700;padding:6px 10px;border-radius:18px;cursor:pointer;border:none;transition:all .2s;}
+      .btn-today{background:var(--accent);color:#000;}
+      .btn-edit{background:transparent;color:var(--muted);border:1.5px solid var(--border);}
+      .btn-edit.on{border-color:var(--accent2);color:var(--accent2);background:rgba(255,107,53,.08);}
+      .days-scroll{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;}
+      .days-scroll::-webkit-scrollbar{display:none;}
+      .day-btn{flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 11px;border-radius:11px;border:1.5px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;transition:all .2s;}
+      .day-btn .ds{font-family:'Unbounded',sans-serif;font-size:8px;font-weight:700;text-transform:uppercase;}
+      .day-btn .da{font-size:14px;font-weight:700;line-height:1;color:var(--text);}
+      .day-btn.active{background:var(--accent);border-color:var(--accent);}
+      .day-btn.active .ds,.day-btn.active .da{color:#000;}
+      .day-btn.today{border-color:var(--accent);}
+      .mcontent{padding:15px 16px;max-width:500px;margin:0 auto;}
+      .day-lbl{font-family:'Unbounded',sans-serif;font-size:19px;font-weight:800;margin-bottom:3px;margin-top:3px;}
+      .day-sub{font-size:11px;color:var(--muted);margin-bottom:15px;}
+      .ptabs{display:flex;gap:7px;margin-bottom:15px;}
+      .ptab{flex:1;padding:9px;border-radius:10px;border:1.5px solid var(--border);background:transparent;cursor:pointer;transition:all .2s;text-align:center;}
+      .ptab .pn{font-family:'Unbounded',sans-serif;font-size:10px;font-weight:700;display:block;margin-bottom:1px;color:var(--muted);}
+      .ptab .pk{font-size:10px;color:var(--muted);}
+      .ptab.you.active{border-color:var(--you);background:rgba(200,245,74,.07);}
+      .ptab.you.active .pn{color:var(--you);}
+      .ptab.her.active{border-color:var(--her);background:rgba(255,107,53,.07);}
+      .ptab.her.active .pn{color:var(--her);}
+      .edit-banner{display:none;background:rgba(255,107,53,.08);border:1px solid rgba(255,107,53,.2);border-radius:9px;padding:8px 12px;margin-bottom:13px;font-size:11px;color:var(--accent2);text-align:center;}
+      .edit-banner.on{display:block;}
+
+      /* MEALS */
+      .meals-list{display:flex;flex-direction:column;gap:8px;}
+      .meal-card{background:var(--card);border-radius:13px;border:1px solid var(--border);overflow:hidden;transition:border-color .2s;}
+      .meal-card.em{border-color:rgba(255,107,53,.25);}
+      .meal-hdr{display:flex;align-items:center;justify-content:space-between;padding:11px 13px;cursor:pointer;}
+      .meal-left{display:flex;align-items:center;gap:9px;}
+      .meal-ico{width:31px;height:31px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;}
+      .meal-nm{font-family:'Unbounded',sans-serif;font-size:10px;font-weight:700;margin-bottom:1px;}
+      .meal-tm{font-size:10px;color:var(--muted);}
+      .meal-r{display:flex;align-items:center;gap:6px;}
+      .meal-kc{font-family:'Unbounded',sans-serif;font-size:11px;font-weight:700;}
+      .arr{font-size:8px;color:var(--muted);transition:transform .2s;}
+      .meal-card.collapsed .mbody{display:none;}
+      .meal-card:not(.collapsed) .arr{transform:rotate(180deg);}
+      .mbody{border-top:1px solid var(--border);}
+      .vitems{padding:8px 13px 11px;list-style:none;}
+      .vitems li{display:flex;align-items:center;gap:7px;padding:4px 0;font-size:12px;color:#ccc;border-bottom:1px solid rgba(255,255,255,.03);}
+      .vitems li:last-child{border-bottom:none;}
+      .vitems li::before{content:'';width:4px;height:4px;border-radius:50%;background:var(--accent);flex-shrink:0;}
+      .vgr{margin-left:auto;font-size:10px;color:var(--muted);}
+      body.py .meal-kc{color:var(--you);}body.ph .meal-kc{color:var(--her);}
+      body.py .vitems li::before{background:var(--you);}body.ph .vitems li::before{background:var(--her);}
+      .ib{background:rgba(251,191,36,.12);}.is{background:rgba(134,239,172,.1);}
+      .il{background:rgba(200,245,74,.1);}.is2{background:rgba(196,181,253,.1);}.id{background:rgba(255,107,53,.1);}
+      .eitems{padding:8px 10px 6px;display:flex;flex-direction:column;gap:5px;}
+      .erow{display:flex;gap:5px;align-items:center;}
+      .ein{flex:1;background:#0d0d0d;border:1px solid var(--border);border-radius:7px;padding:7px 9px;color:var(--text);font-family:'Golos Text',sans-serif;font-size:12px;outline:none;}
+      .ein:focus{border-color:var(--accent2);}
+      .ein.sm{flex:0 0 62px;width:62px;text-align:center;}
+      .bdel{background:rgba(239,68,68,.1);border:none;border-radius:6px;color:#ef4444;font-size:13px;width:26px;height:26px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;}
+      .emf{display:flex;align-items:center;justify-content:space-between;padding:5px 10px 10px;gap:6px;}
+      .badd{flex:1;background:rgba(200,245,74,.06);border:1px dashed rgba(200,245,74,.2);border-radius:7px;color:var(--accent);font-size:11px;padding:6px;cursor:pointer;font-family:'Golos Text',sans-serif;}
+      .ek-wrap{display:flex;align-items:center;gap:4px;font-size:10px;color:var(--muted);}
+      .ekc{width:52px;background:#0d0d0d;border:1px solid var(--border);border-radius:7px;padding:5px 6px;color:var(--accent2);font-family:'Unbounded',sans-serif;font-size:11px;font-weight:700;outline:none;text-align:center;}
+      .ekc:focus{border-color:var(--accent2);}
+      .dtotals{background:var(--card);border-radius:13px;padding:13px;margin-top:14px;border:1px solid var(--border);}
+      .ttl{font-family:'Unbounded',sans-serif;font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;}
+      .tgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;}
+      .ti2{text-align:center;}
+      .tv{font-family:'Unbounded',sans-serif;font-size:13px;font-weight:800;display:block;margin-bottom:1px;}
+      .tl{font-size:9px;color:var(--muted);}
+      .ti2:nth-child(1) .tv{color:var(--accent);}
+      .ti2:nth-child(2) .tv{color:var(--blue);}
+      .ti2:nth-child(3) .tv{color:#fbbf24;}
+      .ti2:nth-child(4) .tv{color:#f87171;}
+      .etr{display:none;grid-template-columns:repeat(4,1fr);gap:5px;margin-top:10px;}
+      .etr.on{display:grid;}
+      .etw{text-align:center;}
+      .etw label{font-size:9px;color:var(--muted);display:block;margin-bottom:3px;}
+      .eti{width:100%;background:#0d0d0d;border:1px solid var(--border);border-radius:6px;padding:5px 3px;color:var(--text);font-family:'Unbounded',sans-serif;font-size:12px;font-weight:700;outline:none;text-align:center;}
+      .eti:focus{border-color:var(--accent2);}
+      .wbar{background:var(--card2);border-radius:10px;padding:11px 13px;margin-top:8px;display:flex;align-items:center;gap:10px;border:1px solid var(--border);}
+      .wbar .wt{font-size:11px;color:var(--muted);}
+      .wbar strong{color:var(--blue);font-family:'Unbounded',sans-serif;font-size:12px;}
+      .savebar{display:none;position:fixed;bottom:0;left:0;right:0;padding:10px 15px;background:#111;border-top:1px solid var(--border);z-index:150;gap:8px;}
+      .savebar.on{display:flex;}
+      .bsave{flex:1;padding:12px;background:var(--accent2);border:none;border-radius:10px;font-family:'Unbounded',sans-serif;font-size:11px;font-weight:700;color:#fff;cursor:pointer;}
+      .bsave:disabled{opacity:.5;}
+      .bcancel{padding:12px 13px;background:var(--card2);border:none;border-radius:10px;font-family:'Unbounded',sans-serif;font-size:11px;font-weight:700;color:var(--muted);cursor:pointer;}
+
+      /* ── DIARY SCREEN ── */
+      .cal-header{padding:18px 16px 14px;background:var(--bg);border-bottom:1px solid var(--border);}
+      .ch-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
+      .ch-title{font-family:'Unbounded',sans-serif;font-size:15px;font-weight:800;}
+      .ch-nav{display:flex;align-items:center;gap:8px;}
+      .ch-nb{background:var(--card2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:14px;width:30px;height:30px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+      .ch-m{font-family:'Unbounded',sans-serif;font-size:11px;font-weight:700;min-width:110px;text-align:center;}
+      .vt{display:flex;gap:6px;}
+      .vtb{flex:1;padding:7px;border-radius:8px;border:1.5px solid var(--border);background:transparent;font-family:'Unbounded',sans-serif;font-size:9px;font-weight:700;color:var(--muted);cursor:pointer;transition:all .2s;}
+      .vtb.active{border-color:var(--accent);color:var(--accent);background:rgba(200,245,74,.07);}
+      .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;padding:12px 14px;}
+      .cal-dow{text-align:center;font-family:'Unbounded',sans-serif;font-size:8px;font-weight:700;color:var(--muted);padding:3px 0 7px;text-transform:uppercase;}
+      .cal-cell{aspect-ratio:1;border-radius:7px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;position:relative;transition:all .15s;border:1px solid transparent;}
+      .cal-cell .cn{font-size:12px;font-weight:600;line-height:1;}
+      .cal-cell .cdot{width:4px;height:4px;border-radius:50%;margin-top:2px;}
+      .cal-cell.other{opacity:.25;}
+      .cal-cell.has-log{background:rgba(200,245,74,.06);}
+      .cal-cell.has-log .cdot{background:var(--accent);}
+      .cal-cell.tod{border-color:var(--accent);}
+      .cal-cell.tod .cn{color:var(--accent);font-weight:800;}
+      .cal-cell.sel{background:var(--accent);}
+      .cal-cell.sel .cn{color:#000;font-weight:800;}
+      .cal-cell.sel .cdot{background:#000;}
+      .day-log{padding:0 16px 16px;max-width:500px;margin:0 auto;}
+      .dl-date{font-family:'Unbounded',sans-serif;font-size:15px;font-weight:800;margin:13px 0 3px;}
+      .dl-sub{font-size:11px;color:var(--muted);margin-bottom:12px;}
+      .log-empty{text-align:center;padding:28px;color:var(--muted);font-size:12px;}
+      .log-empty .lei{font-size:32px;margin-bottom:7px;}
+      .lpb{background:var(--card);border-radius:12px;border:1px solid var(--border);margin-bottom:8px;overflow:hidden;}
+      .lpb-hdr{padding:11px 13px;display:flex;align-items:center;gap:9px;border-bottom:1px solid var(--border);}
+      .lpb-dot{width:7px;height:7px;border-radius:50%;}
+      .lpb-name{font-family:'Unbounded',sans-serif;font-size:10px;font-weight:700;}
+      .lpb-kc{margin-left:auto;font-family:'Unbounded',sans-serif;font-size:10px;}
+      .lpb-meals{padding:9px 13px 11px;}
+      .lpb-meal{margin-bottom:7px;}
+      .lpb-meal:last-child{margin-bottom:0;}
+      .lpb-mn{font-family:'Unbounded',sans-serif;font-size:8px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px;}
+      .lpb-items{font-size:11px;color:#bbb;line-height:1.6;}
+      .week-view{padding:13px 16px;max-width:500px;margin:0 auto;}
+      .wr{background:var(--card);border-radius:11px;border:1px solid var(--border);padding:11px 13px;margin-bottom:7px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;}
+      .wr-day{font-family:'Unbounded',sans-serif;font-size:11px;font-weight:700;margin-bottom:1px;}
+      .wr-date{font-size:10px;color:var(--muted);}
+      .wr-r{display:flex;gap:6px;align-items:center;}
+      .wrbadge{font-family:'Unbounded',sans-serif;font-size:9px;font-weight:700;padding:3px 7px;border-radius:18px;}
+      .wrbadge.y{background:rgba(200,245,74,.12);color:var(--you);}
+      .wrbadge.h{background:rgba(255,107,53,.12);color:var(--her);}
+      .wrbadge.e{background:var(--card2);color:var(--muted);}
+
+      /* ── SEARCH SCREEN ── */
+      .search-header{padding:18px 16px 13px;background:var(--bg);border-bottom:1px solid var(--border);}
+      .sh-title{font-family:'Unbounded',sans-serif;font-size:15px;font-weight:800;margin-bottom:12px;}
+      .sbox{display:flex;gap:7px;}
+      .sinp{flex:1;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 13px;color:var(--text);font-family:'Golos Text',sans-serif;font-size:13px;outline:none;}
+      .sinp:focus{border-color:var(--accent);}
+      .sinp::placeholder{color:var(--muted);}
+      .sbtn{background:var(--accent);border:none;border-radius:10px;padding:10px 14px;font-family:'Unbounded',sans-serif;font-size:10px;font-weight:700;color:#000;cursor:pointer;white-space:nowrap;}
+      .sbtn:disabled{opacity:.5;}
+      .scontent{padding:13px 16px;max-width:500px;margin:0 auto;}
+      .shint{text-align:center;padding:36px 18px;color:var(--muted);}
+      .shint .shi{font-size:36px;margin-bottom:9px;}
+      .shint p{font-size:12px;line-height:1.6;}
+      .exs{margin-top:12px;display:flex;flex-wrap:wrap;gap:5px;justify-content:center;}
+      .exch{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:5px 11px;font-size:10px;color:var(--text);cursor:pointer;}
+      .sl{text-align:center;padding:28px;color:var(--muted);font-size:12px;}
+      .fc{background:var(--card);border-radius:12px;border:1px solid var(--border);padding:13px;margin-bottom:8px;cursor:pointer;transition:border-color .2s;active:border-color:var(--accent);}
+      .fc-name{font-family:'Unbounded',sans-serif;font-size:11px;font-weight:700;margin-bottom:2px;}
+      .fc-brand{font-size:10px;color:var(--muted);margin-bottom:9px;}
+      .fc-macros{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;}
+      .fc-m{text-align:center;background:var(--card2);border-radius:7px;padding:6px 3px;}
+      .fc-mv{font-family:'Unbounded',sans-serif;font-size:12px;font-weight:700;display:block;margin-bottom:1px;}
+      .fc-ml{font-size:8px;color:var(--muted);}
+      .fc-m:nth-child(1) .fc-mv{color:var(--accent);}
+      .fc-m:nth-child(2) .fc-mv{color:var(--blue);}
+      .fc-m:nth-child(3) .fc-mv{color:#fbbf24;}
+      .fc-m:nth-child(4) .fc-mv{color:#f87171;}
+
+      /* MODAL */
+      .mo{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:300;}
+      .mo.on{display:block;}
+      .mod{position:fixed;bottom:0;left:0;right:0;background:#141414;border-radius:18px 18px 0 0;border-top:1px solid var(--border);z-index:301;max-height:82vh;overflow-y:auto;padding:0 16px 28px;}
+      .mod-drag{width:38px;height:3px;background:var(--border);border-radius:2px;margin:11px auto 0;}
+      .mod-title{font-family:'Unbounded',sans-serif;font-size:15px;font-weight:800;margin:14px 0 3px;}
+      .mod-brand{font-size:11px;color:var(--muted);margin-bottom:14px;}
+      .per100{font-family:'Unbounded',sans-serif;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:9px;}
+      .mgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:7px;margin-bottom:14px;}
+      .mg-i{background:var(--card);border-radius:10px;padding:11px;border:1px solid var(--border);}
+      .mg-v{font-family:'Unbounded',sans-serif;font-size:19px;font-weight:800;display:block;margin-bottom:1px;}
+      .mg-l{font-size:9px;color:var(--muted);}
+      .mg-i:nth-child(1) .mg-v{color:var(--accent);}
+      .mg-i:nth-child(2) .mg-v{color:var(--blue);}
+      .mg-i:nth-child(3) .mg-v{color:#fbbf24;}
+      .mg-i:nth-child(4) .mg-v{color:#f87171;}
+      .mod-close{display:block;width:100%;padding:12px;background:var(--card2);border:none;border-radius:11px;font-family:'Unbounded',sans-serif;font-size:11px;font-weight:700;color:var(--muted);cursor:pointer;margin-top:7px;}
+
+      /* TOAST */
+      .toast{position:fixed;bottom:72px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--accent);color:#000;font-family:'Unbounded',sans-serif;font-size:10px;font-weight:700;padding:9px 19px;border-radius:28px;z-index:400;opacity:0;transition:all .3s;pointer-events:none;white-space:nowrap;}
+      .toast.on{opacity:1;transform:translateX(-50%) translateY(0);}
+      .toast.err{background:#ef4444;color:#fff;}
+    </style>
+  </head>
+  <body class="py">
+    <!-- SETUP SCREEN -->
+    <div class="setup-screen" id="setupScreen">
+      <div class="setup-logo">🥗 Раціон</div>
+      <div class="setup-sub">Налаштування Firebase для спільного доступу</div>
+      <div class="setup-card">
+        <div class="setup-label">Firebase API Key</div>
+        <input class="setup-inp" id="s_apiKey" placeholder="AIzaSy..." />
+        <div class="setup-label">Auth Domain</div>
+        <input
+          class="setup-inp"
+          id="s_authDomain"
+          placeholder="myapp.firebaseapp.com"
+        />
+        <div class="setup-label">Database URL</div>
+        <input
+          class="setup-inp"
+          id="s_dbUrl"
+          placeholder="https://myapp-default-rtdb.firebaseio.com"
+        />
+        <div class="setup-label">Project ID</div>
+        <input class="setup-inp" id="s_projectId" placeholder="myapp-12345" />
+        <div class="setup-label">App ID</div>
+        <input class="setup-inp" id="s_appId" placeholder="1:123:web:abc..." />
+        <button class="setup-btn" onclick="saveFirebaseConfig()">
+          🔥 Підключити Firebase
+        </button>
+        <div class="setup-hint">
+          Як отримати ці дані:<br />
+          1. Зайди на
+          <a href="https://console.firebase.google.com" target="_blank"
+            >console.firebase.google.com</a
+          ><br />
+          2. Створи проєкт → "Add app" → Web<br />
+          3. Скопіюй дані з firebaseConfig<br />
+          4. В Realtime Database → Rules → постав true для read/write
+        </div>
+      </div>
+    </div>
+
+    <!-- LOADER -->
+    <div class="loader" id="loader">
+      <div class="loader-logo">🥗 Раціон</div>
+      <div class="spin"></div>
+      <div class="loader-sub" id="loaderSub">Підключення до Firebase...</div>
+    </div>
+
+    <!-- NAV -->
+    <div class="nav-tabs" id="mainNav" style="display: none">
+      <div class="nav-tab active" onclick="showScreen('menu')" id="nt-menu">
+        <span class="ti">🥗</span><span>Меню</span>
+      </div>
+      <div class="nav-tab" onclick="showScreen('diary')" id="nt-diary">
+        <span class="ti">📅</span><span>Щоденник</span>
+      </div>
+      <div class="nav-tab" onclick="showScreen('search')" id="nt-search">
+        <span class="ti">🔍</span><span>Продукти</span>
+      </div>
+    </div>
+
+    <!-- MENU SCREEN -->
+    <div class="screen active" id="screen-menu" style="display: none">
+      <div class="menu-header">
+        <div class="mh-top">
+          <div class="app-logo">
+            🥗 Раціон
+            <span class="sync-status" id="syncStatus"
+              ><span class="sdot syncing"></span
+              ><span id="syncTxt">...</span></span
+            >
+          </div>
+          <div class="mh-btns">
+            <button class="btn-sm btn-today" onclick="goToday()">
+              Сьогодні
+            </button>
+            <button class="btn-sm btn-edit" id="btnEdit" onclick="toggleEdit()">
+              ✏️ Змінити
+            </button>
+          </div>
+        </div>
+        <div class="days-scroll" id="daysScroll"></div>
+      </div>
+      <div class="mcontent">
+        <div class="day-lbl" id="dayLbl"></div>
+        <div class="day-sub" id="daySub"></div>
+        <div class="ptabs">
+          <div class="ptab you active" onclick="setPerson('you')">
+            <span class="pn">Ти</span><span class="pk">2 200 ккал</span>
+          </div>
+          <div class="ptab her" onclick="setPerson('her')">
+            <span class="pn">Вона</span><span class="pk">1 800 ккал</span>
+          </div>
+        </div>
+        <div class="edit-banner" id="editBanner">
+          ✏️ Режим редагування — зміни збережуться для обох
+        </div>
+        <div class="meals-list" id="mealsList"></div>
+        <div class="dtotals">
+          <div class="ttl">День — підсумок</div>
+          <div class="tgrid" id="totGrid"></div>
+          <div class="etr" id="etr">
+            <div class="etw">
+              <label>ккал</label><input class="eti" id="et_k" />
+            </div>
+            <div class="etw">
+              <label>білок</label><input class="eti" id="et_p" />
+            </div>
+            <div class="etw">
+              <label>жири</label><input class="eti" id="et_f" />
+            </div>
+            <div class="etw">
+              <label>вуглев</label><input class="eti" id="et_c" />
+            </div>
+          </div>
+        </div>
+        <div class="wbar">
+          <span style="font-size: 17px">💧</span>
+          <div class="wt">Вода: <strong id="waterG">3–3.5 л</strong></div>
+        </div>
+      </div>
+      <div class="savebar" id="savebar">
+        <button class="bcancel" onclick="cancelEdit()">Скасувати</button>
+        <button class="bsave" id="bsave" onclick="saveEdit()">
+          ☁️ Зберегти для обох
+        </button>
+      </div>
+    </div>
+
+    <!-- DIARY SCREEN -->
+    <div class="screen" id="screen-diary" style="display: none">
+      <div class="cal-header">
+        <div class="ch-top">
+          <div class="ch-title">📅 Щоденник</div>
+          <div class="ch-nav">
+            <button class="ch-nb" onclick="calMove(-1)">‹</button>
+            <div class="ch-m" id="calMonth"></div>
+            <button class="ch-nb" onclick="calMove(1)">›</button>
+          </div>
+        </div>
+        <div class="vt">
+          <button
+            class="vtb active"
+            id="vt-month"
+            onclick="setCalView('month')"
+          >
+            Місяць
+          </button>
+          <button class="vtb" id="vt-week" onclick="setCalView('week')">
+            Тиждень
+          </button>
+        </div>
+      </div>
+      <div id="calBody"></div>
+    </div>
+
+    <!-- SEARCH SCREEN -->
+    <div class="screen" id="screen-search" style="display: none">
+      <div class="search-header">
+        <div class="sh-title">🔍 Продукти — КБЖУ</div>
+        <div class="sbox">
+          <input
+            class="sinp"
+            id="searchInp"
+            placeholder="Введи назву продукту..."
+            onkeydown="if (event.key === 'Enter') doSearch();"
+          />
+          <button class="sbtn" id="searchBtn" onclick="doSearch()">
+            Шукати
+          </button>
+        </div>
+      </div>
+      <div class="scontent" id="searchContent">
+        <div class="shint">
+          <div class="shi">🥑</div>
+          <p>
+            Пошук по базі Open Food Facts — точні КБЖУ на 100г для будь-якого
+            продукту
+          </p>
+          <div class="exs">
+            <div class="exch" onclick="qs('курка')">🍗 Курка</div>
+            <div class="exch" onclick="qs('гречка')">🌾 Гречка</div>
+            <div class="exch" onclick="qs('яйця')">🥚 Яйця</div>
+            <div class="exch" onclick="qs('кефір')">🥛 Кефір</div>
+            <div class="exch" onclick="qs('тунець')">🐟 Тунець</div>
+            <div class="exch" onclick="qs('гранола')">🌰 Гранола</div>
+            <div class="exch" onclick="qs('рис')">🍚 Рис</div>
+            <div class="exch" onclick="qs('картопля')">🥔 Картопля</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- FOOD MODAL -->
+    <div class="mo" id="mo" onclick="closeMo()">
+      <div class="mod" onclick="event.stopPropagation()">
+        <div class="mod-drag"></div>
+        <div class="mod-title" id="mTitle"></div>
+        <div class="mod-brand" id="mBrand"></div>
+        <div class="per100">На 100г продукту:</div>
+        <div class="mgrid">
+          <div class="mg-i">
+            <span class="mg-v" id="mKcal">—</span
+            ><span class="mg-l">Калорії</span>
+          </div>
+          <div class="mg-i">
+            <span class="mg-v" id="mProt">—</span
+            ><span class="mg-l">Білок г</span>
+          </div>
+          <div class="mg-i">
+            <span class="mg-v" id="mFat">—</span
+            ><span class="mg-l">Жири г</span>
+          </div>
+          <div class="mg-i">
+            <span class="mg-v" id="mCarb">—</span
+            ><span class="mg-l">Вуглев г</span>
+          </div>
+        </div>
+        <button class="mod-close" onclick="closeMo()">Закрити</button>
+      </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <!-- Firebase SDK -->
+    <script type="module">
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+      import {
+        getDatabase,
+        ref,
+        set,
+        get,
+        onValue,
+        child,
+      } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+      // ═══════════════════════════════
+      // CONSTANTS
+      // ═══════════════════════════════
+      const DAYS = [
+        "Неділя",
+        "Понеділок",
+        "Вівторок",
+        "Середа",
+        "Четвер",
+        "П'ятниця",
+        "Субота",
+      ];
+      const DAYS_SH = ["НД", "ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ"];
+      const MONTHS = [
+        "Січень",
+        "Лютий",
+        "Березень",
+        "Квітень",
+        "Травень",
+        "Червень",
+        "Липень",
+        "Серпень",
+        "Вересень",
+        "Жовтень",
+        "Листопад",
+        "Грудень",
+      ];
+      const META = [
+        {
+          key: "breakfast",
+          name: "Сніданок",
+          time: "7:30",
+          ico: "🌅",
+          cls: "ib",
+        },
+        {
+          key: "snack1",
+          name: "Перекус 1",
+          time: "10:30",
+          ico: "🥗",
+          cls: "is",
+        },
+        { key: "lunch", name: "Обід", time: "13:00", ico: "🍽️", cls: "il" },
+        {
+          key: "snack2",
+          name: "Перекус 2",
+          time: "16:30",
+          ico: "🍎",
+          cls: "is2",
+        },
+        { key: "dinner", name: "Вечеря", time: "19:00", ico: "🌙", cls: "id" },
+      ];
+
+      const DEF_MENU = {
+        you: {
+          1: {
+            totals: { kcal: 2200, protein: 175, fat: 70, carbs: 218 },
+            breakfast: {
+              kcal: 430,
+              items: [
+                { n: "Гранола", g: "55г" },
+                { n: "Грецький йогурт", g: "150г" },
+                { n: "Банан", g: "1шт" },
+              ],
+            },
+            snack1: {
+              kcal: 190,
+              items: [
+                { n: "Яйця варені", g: "2шт" },
+                { n: "Огірок", g: "1шт" },
+              ],
+            },
+            lunch: {
+              kcal: 720,
+              items: [
+                { n: "Куряча грудка", g: "220г" },
+                { n: "Гречка", g: "110г" },
+                { n: "Салат огірок/помідор/перець", g: "" },
+              ],
+            },
+            snack2: {
+              kcal: 200,
+              items: [
+                { n: "Яблуко", g: "1шт" },
+                { n: "Кефір", g: "200мл" },
+              ],
+            },
+            dinner: {
+              kcal: 660,
+              items: [
+                { n: "Куряче стегно", g: "200г" },
+                { n: "Картопля запечена", g: "150г" },
+                { n: "Цибуля+перець", g: "" },
+              ],
+            },
+          },
+          2: {
+            totals: { kcal: 2200, protein: 175, fat: 70, carbs: 218 },
+            breakfast: {
+              kcal: 420,
+              items: [
+                { n: "Омлет", g: "3 яйця" },
+                { n: "Помідор", g: "1шт" },
+                { n: "Цибуля", g: "за смаком" },
+              ],
+            },
+            snack1: {
+              kcal: 240,
+              items: [
+                { n: "Грецький йогурт", g: "150г" },
+                { n: "Апельсин", g: "1шт" },
+              ],
+            },
+            lunch: {
+              kcal: 700,
+              items: [
+                { n: "Тунець у власному соку", g: "2 банки" },
+                { n: "Рис білий", g: "110г" },
+                { n: "Салат огірок/перець", g: "" },
+              ],
+            },
+            snack2: {
+              kcal: 200,
+              items: [
+                { n: "Кефір", g: "200мл" },
+                { n: "Яблуко", g: "1шт" },
+              ],
+            },
+            dinner: {
+              kcal: 640,
+              items: [
+                { n: "Куряче стегно", g: "200г" },
+                { n: "Гречка", g: "100г" },
+                { n: "Помідор+цибуля тушковані", g: "" },
+              ],
+            },
+          },
+          3: {
+            totals: { kcal: 2200, protein: 175, fat: 70, carbs: 218 },
+            breakfast: {
+              kcal: 420,
+              items: [
+                { n: "Гранола", g: "55г" },
+                { n: "Грецький йогурт", g: "150г" },
+                { n: "Яблуко", g: "1шт" },
+              ],
+            },
+            snack1: {
+              kcal: 190,
+              items: [
+                { n: "Яйця варені", g: "2шт" },
+                { n: "Помідор", g: "1шт" },
+              ],
+            },
+            lunch: {
+              kcal: 720,
+              items: [
+                { n: "Куряча грудка", g: "220г" },
+                { n: "Рис білий", g: "110г" },
+                { n: "Салат помідор/перець/цибуля", g: "" },
+              ],
+            },
+            snack2: {
+              kcal: 220,
+              items: [
+                { n: "Банан", g: "1шт" },
+                { n: "Кефір", g: "150мл" },
+              ],
+            },
+            dinner: {
+              kcal: 650,
+              items: [
+                { n: "Тунець у власному соку", g: "2 банки" },
+                { n: "Картопля варена", g: "180г" },
+                { n: "Цибуля+часник", g: "" },
+              ],
+            },
+          },
+          4: {
+            totals: { kcal: 2200, protein: 175, fat: 70, carbs: 218 },
+            breakfast: {
+              kcal: 400,
+              items: [
+                { n: "Яйця scrambled", g: "3шт" },
+                { n: "Помідор", g: "1шт" },
+                { n: "Цибуля", g: "" },
+              ],
+            },
+            snack1: {
+              kcal: 330,
+              items: [
+                { n: "Гранола", g: "50г" },
+                { n: "Кефір", g: "150мл" },
+              ],
+            },
+            lunch: {
+              kcal: 710,
+              items: [
+                { n: "Куряче стегно", g: "200г" },
+                { n: "Гречка", g: "110г" },
+                { n: "Салат огірок/помідор", g: "" },
+              ],
+            },
+            snack2: {
+              kcal: 220,
+              items: [
+                { n: "Апельсин", g: "1шт" },
+                { n: "Грецький йогурт", g: "120г" },
+              ],
+            },
+            dinner: {
+              kcal: 650,
+              items: [
+                { n: "Куряча грудка", g: "200г" },
+                { n: "Рис білий", g: "100г" },
+                { n: "Перець+цибуля тушковані", g: "" },
+              ],
+            },
+          },
+          5: {
+            totals: { kcal: 2200, protein: 175, fat: 70, carbs: 218 },
+            breakfast: {
+              kcal: 420,
+              items: [
+                { n: "Гранола", g: "55г" },
+                { n: "Грецький йогурт", g: "150г" },
+                { n: "Апельсин", g: "1шт" },
+              ],
+            },
+            snack1: {
+              kcal: 190,
+              items: [
+                { n: "Яйця варені", g: "2шт" },
+                { n: "Огірок", g: "1шт" },
+              ],
+            },
+            lunch: {
+              kcal: 700,
+              items: [
+                { n: "Тунець у власному соку", g: "2 банки" },
+                { n: "Картопля варена", g: "180г" },
+                { n: "Салат огірок/помідор", g: "" },
+              ],
+            },
+            snack2: {
+              kcal: 200,
+              items: [
+                { n: "Яблуко", g: "1шт" },
+                { n: "Кефір", g: "200мл" },
+              ],
+            },
+            dinner: {
+              kcal: 650,
+              items: [
+                { n: "Куряче стегно", g: "200г" },
+                { n: "Гречка", g: "100г" },
+                { n: "Цибуля+часник+перець", g: "" },
+              ],
+            },
+          },
+          6: {
+            totals: { kcal: 2300, protein: 178, fat: 72, carbs: 222 },
+            breakfast: {
+              kcal: 500,
+              items: [
+                { n: "Омлет", g: "4 яйця" },
+                { n: "Цибуля+перець+помідор", g: "" },
+              ],
+            },
+            snack1: {
+              kcal: 290,
+              items: [
+                { n: "Грецький йогурт", g: "150г" },
+                { n: "Банан", g: "1шт" },
+              ],
+            },
+            lunch: {
+              kcal: 720,
+              items: [
+                { n: "Куряча грудка", g: "220г" },
+                { n: "Рис білий", g: "110г" },
+                { n: "Салат", g: "" },
+              ],
+            },
+            snack2: {
+              kcal: 190,
+              items: [
+                { n: "Апельсин", g: "1шт" },
+                { n: "Кефір", g: "150мл" },
+              ],
+            },
+            dinner: {
+              kcal: 600,
+              items: [
+                { n: "Тунець у власному соку", g: "2 банки" },
+                { n: "Картопля", g: "150г" },
+                { n: "Часник+цибуля", g: "" },
+              ],
+            },
+          },
+          0: {
+            totals: { kcal: 2200, protein: 175, fat: 70, carbs: 218 },
+            breakfast: {
+              kcal: 420,
+              items: [
+                { n: "Гранола", g: "55г" },
+                { n: "Грецький йогурт", g: "150г" },
+                { n: "Яблуко", g: "1шт" },
+              ],
+            },
+            snack1: {
+              kcal: 190,
+              items: [
+                { n: "Яйця варені", g: "2шт" },
+                { n: "Помідор", g: "1шт" },
+              ],
+            },
+            lunch: {
+              kcal: 750,
+              items: [
+                { n: "Курка", g: "200г" },
+                { n: "Рис або картопля", g: "" },
+                { n: "Без смажених соусів", g: "⚠️" },
+              ],
+            },
+            snack2: {
+              kcal: 220,
+              items: [
+                { n: "Банан", g: "1шт" },
+                { n: "Кефір", g: "150мл" },
+              ],
+            },
+            dinner: {
+              kcal: 630,
+              items: [
+                { n: "Куряче стегно", g: "200г" },
+                { n: "Гречка", g: "100г" },
+                { n: "Салат", g: "" },
+              ],
+            },
+          },
+        },
+        her: {
+          1: {
+            totals: { kcal: 1800, protein: 100, fat: 65, carbs: 195 },
+            breakfast: {
+              kcal: 420,
+              items: [
+                { n: "Гранола", g: "50г" },
+                { n: "Грецький йогурт", g: "150г" },
+                { n: "Банан", g: "1шт" },
+              ],
+            },
+            snack1: {
+              kcal: 120,
+              items: [
+                { n: "Яйце варене", g: "1шт" },
+                { n: "Огірок+помідор", g: "" },
+              ],
+            },
+            lunch: {
+              kcal: 560,
+              items: [
+                { n: "Куряча грудка", g: "150г" },
+                { n: "Гречка", g: "90г" },
+                { n: "Салат огірок/помідор/перець", g: "" },
+              ],
+            },
+            snack2: {
+              kcal: 170,
+              items: [
+                { n: "Яблуко", g: "1шт" },
+                { n: "Кефір", g: "150мл" },
+              ],
+            },
+            dinner: {
+              kcal: 530,
+              items: [
+                { n: "Куряче стегно", g: "150г" },
+                { n: "Картопля запечена", g: "130г" },
+                { n: "Цибуля+перець", g: "" },
+              ],
+            },
+          },
+          2: {
+            totals: { kcal: 1790, protein: 100, fat: 65, carbs: 193 },
+            breakfast: {
+              kcal: 290,
+              items: [
+                { n: "Омлет", g: "2 яйця" },
+                { n: "Помідор", g: "1шт" },
+                { n: "Цибуля", g: "" },
+              ],
+            },
+            snack1: {
+              kcal: 240,
+              items: [
+                { n: "Грецький йогурт", g: "150г" },
+                { n: "Апельсин", g: "1шт" },
+              ],
+            },
+            lunch: {
+              kcal: 530,
+              items: [
+                { n: "Тунець у власному соку", g: "1 банка" },
+                { n: "Рис білий", g: "90г" },
+                { n: "Салат огірок/перець", g: "" },
+              ],
+            },
+            snack2: {
+              kcal: 200,
+              items: [
+                { n: "Кефір", g: "200мл" },
+                { n: "Яблуко", g: "1шт" },
+              ],
+            },
+            dinner: {
+              kcal: 530,
+              items: [
+                { n: "Куряче стегно", g: "150г" },
+                { n: "Гречка", g: "90г" },
+                { n: "Помідор+цибуля тушковані", g: "" },
+              ],
+            },
+          },
+          3: {
+            totals: { kcal: 1810, protein: 101, fat: 65, carbs: 196 },
+            breakfast: {
+              kcal: 410,
+              items: [
+                { n: "Гранола", g: "50г" },
+                { n: "Грецький йогурт", g: "150г" },
+                { n: "Яблуко", g: "1шт" },
+              ],
+            },
+            snack1: {
+              kcal: 190,
+              items: [
+                { n: "Яйця варені", g: "2шт" },
+                { n: "Огірок", g: "1шт" },
+              ],
+            },
+            lunch: {
+              kcal: 550,
+              items: [
+                { n: "Куряча грудка", g: "150г" },
+                { n: "Рис білий", g: "90г" },
+                { n: "Салат помідор/перець", g: "" },
+              ],
+            },
+            snack2: {
+              kcal: 170,
+              items: [
+                { n: "Апельсин", g: "1шт" },
+                { n: "Кефір", g: "150мл" },
+              ],
+            },
+            dinner: {
+              kcal: 490,
+              items: [
+                { n: "Тунець у власному соку", g: "1 банка" },
+                { n: "Картопля варена", g: "150г" },
+                { n: "Цибуля+часник", g: "" },
+              ],
+            },
+          },
+          4: {
+            totals: { kcal: 1810, protein: 100, fat: 66, carbs: 194 },
+            breakfast: {
+              kcal: 290,
+              items: [
+                { n: "Яйця scrambled", g: "2шт" },
+                { n: "Помідор", g: "1шт" },
+                { n: "Цибуля", g: "" },
+              ],
+            },
+            snack1: {
+              kcal: 310,
+              items: [
+                { n: "Гранола", g: "45г" },
+                { n: "Кефір", g: "150мл" },
+              ],
+            },
+            lunch: {
+              kcal: 550,
+              items: [
+                { n: "Куряче стегно", g: "150г" },
+                { n: "Гречка", g: "90г" },
+                { n: "Салат огірок/помідор", g: "" },
+              ],
+            },
+            snack2: {
+              kcal: 250,
+              items: [
+                { n: "Банан", g: "1шт" },
+                { n: "Грецький йогурт", g: "100г" },
+              ],
+            },
+            dinner: {
+              kcal: 510,
+              items: [
+                { n: "Куряча грудка", g: "150г" },
+                { n: "Рис білий", g: "80г" },
+                { n: "Перець+цибуля тушковані", g: "" },
+              ],
+            },
+          },
+          5: {
+            totals: { kcal: 1720, protein: 98, fat: 63, carbs: 190 },
+            breakfast: {
+              kcal: 410,
+              items: [
+                { n: "Гранола", g: "50г" },
+                { n: "Грецький йогурт", g: "150г" },
+                { n: "Апельсин", g: "1шт" },
+              ],
+            },
+            snack1: {
+              kcal: 120,
+              items: [
+                { n: "Яйце варене", g: "1шт" },
+                { n: "Огірок+помідор", g: "" },
+              ],
+            },
+            lunch: {
+              kcal: 490,
+              items: [
+                { n: "Тунець у власному соку", g: "1 банка" },
+                { n: "Картопля варена", g: "150г" },
+                { n: "Салат", g: "" },
+              ],
+            },
+            snack2: {
+              kcal: 170,
+              items: [
+                { n: "Яблуко", g: "1шт" },
+                { n: "Кефір", g: "150мл" },
+              ],
+            },
+            dinner: {
+              kcal: 530,
+              items: [
+                { n: "Куряче стегно", g: "150г" },
+                { n: "Гречка", g: "90г" },
+                { n: "Цибуля+перець", g: "" },
+              ],
+            },
+          },
+          6: {
+            totals: { kcal: 1840, protein: 103, fat: 66, carbs: 198 },
+            breakfast: {
+              kcal: 380,
+              items: [
+                { n: "Омлет", g: "3 яйця" },
+                { n: "Перець+помідор+цибуля", g: "" },
+              ],
+            },
+            snack1: {
+              kcal: 290,
+              items: [
+                { n: "Грецький йогурт", g: "150г" },
+                { n: "Банан", g: "1шт" },
+              ],
+            },
+            lunch: {
+              kcal: 550,
+              items: [
+                { n: "Куряча грудка", g: "150г" },
+                { n: "Рис білий", g: "90г" },
+                { n: "Салат", g: "" },
+              ],
+            },
+            snack2: {
+              kcal: 170,
+              items: [
+                { n: "Апельсин", g: "1шт" },
+                { n: "Кефір", g: "150мл" },
+              ],
+            },
+            dinner: {
+              kcal: 450,
+              items: [
+                { n: "Тунець у власному соку", g: "1 банка" },
+                { n: "Картопля", g: "130г" },
+                { n: "Часник+цибуля", g: "" },
+              ],
+            },
+          },
+          0: {
+            totals: { kcal: 1810, protein: 100, fat: 65, carbs: 196 },
+            breakfast: {
+              kcal: 410,
+              items: [
+                { n: "Гранола", g: "50г" },
+                { n: "Грецький йогурт", g: "150г" },
+                { n: "Яблуко", g: "1шт" },
+              ],
+            },
+            snack1: {
+              kcal: 120,
+              items: [
+                { n: "Яйце варене", g: "1шт" },
+                { n: "Помідор", g: "1шт" },
+              ],
+            },
+            lunch: {
+              kcal: 600,
+              items: [
+                { n: "Курка", g: "150г" },
+                { n: "Рис або картопля", g: "" },
+                { n: "Без смажених соусів", g: "⚠️" },
+              ],
+            },
+            snack2: {
+              kcal: 220,
+              items: [
+                { n: "Банан", g: "1шт" },
+                { n: "Кефір", g: "150мл" },
+              ],
+            },
+            dinner: {
+              kcal: 460,
+              items: [
+                { n: "Куряче стегно", g: "130г" },
+                { n: "Гречка", g: "80г" },
+                { n: "Салат", g: "" },
+              ],
+            },
+          },
+        },
+      };
+
+      // ═══════════════════════════════
+      // STATE
+      // ═══════════════════════════════
+      let db = null,
+        MENU = JSON.parse(JSON.stringify(DEF_MENU)),
+        DIARY = {};
+      let curDay = new Date().getDay(),
+        person = "you",
+        editMode = false;
+      let calY = new Date().getFullYear(),
+        calM = new Date().getMonth(),
+        calView = "month",
+        selDate = null;
+
+      // ═══════════════════════════════
+      // FIREBASE SETUP
+      // ═══════════════════════════════
+      window.saveFirebaseConfig = function () {
+        const cfg = {
+          apiKey: document.getElementById("s_apiKey").value.trim(),
+          authDomain: document.getElementById("s_authDomain").value.trim(),
+          databaseURL: document.getElementById("s_dbUrl").value.trim(),
+          projectId: document.getElementById("s_projectId").value.trim(),
+          appId: document.getElementById("s_appId").value.trim(),
+          storageBucket:
+            document.getElementById("s_projectId").value.trim() +
+            ".appspot.com",
+          messagingSenderId: "000000000000",
+        };
+        if (!cfg.apiKey || !cfg.databaseURL) {
+          showToast("Заповни всі поля!", "err");
+          return;
+        }
+        localStorage.setItem("fb_cfg", JSON.stringify(cfg));
+        document.getElementById("setupScreen").classList.add("hide");
+        initFirebase(cfg);
+      };
+
+      function initFirebase(cfg) {
+        document.getElementById("loader").style.display = "flex";
+        document.getElementById("loaderSub").textContent =
+          "Підключення до Firebase...";
+        try {
+          const app = initializeApp(cfg);
+          db = getDatabase(app);
+          document.getElementById("loaderSub").textContent =
+            "Завантаження меню...";
+          // Load menu from Firebase, fallback to defaults
+          const menuRef = ref(db, "racion/menu");
+          onValue(menuRef, (snap) => {
+            const val = snap.val();
+            if (val) MENU = val;
+            else set(ref(db, "racion/menu"), MENU); // first time — save defaults
+            renderMenuPage();
+            setSyncStatus("ok", "Синхронізовано");
+          });
+          // Load diary
+          const diaryRef = ref(db, "racion/diary");
+          onValue(diaryRef, (snap) => {
+            const val = snap.val();
+            if (val) DIARY = val;
+          });
+          // Show app
+          document.getElementById("loader").classList.add("hide");
+          document.getElementById("mainNav").style.display = "flex";
+          document
+            .querySelectorAll(".screen")
+            .forEach((s) => (s.style.display = "block"));
+          renderDays();
+          renderMenuPage();
+          logToday();
+        } catch (e) {
+          document.getElementById("loaderSub").textContent =
+            "Помилка: " + e.message;
+          showToast("Помилка Firebase — перевір дані", "err");
+        }
+      }
+
+      // Check if config already saved
+      const savedCfg = localStorage.getItem("fb_cfg");
+      if (savedCfg) {
+        document.getElementById("setupScreen").classList.add("hide");
+        try {
+          initFirebase(JSON.parse(savedCfg));
+        } catch (e) {
+          document.getElementById("setupScreen").classList.remove("hide");
+        }
+      } else {
+        document.getElementById("loader").classList.add("hide");
+      }
+
+      // ═══════════════════════════════
+      // SYNC HELPERS
+      // ═══════════════════════════════
+      function setSyncStatus(state, txt) {
+        const dot = document
+          .getElementById("syncStatus")
+          .querySelector(".sdot");
+        dot.className =
+          "sdot" +
+          (state === "syncing"
+            ? " syncing"
+            : state === "err"
+              ? " offline"
+              : "");
+        document.getElementById("syncTxt").textContent = txt;
+      }
+
+      async function pushMenu() {
+        if (!db) return;
+        setSyncStatus("syncing", "Зберігаємо...");
+        try {
+          await set(ref(db, "racion/menu"), MENU);
+          setSyncStatus("ok", "Збережено ✓");
+          setTimeout(() => setSyncStatus("ok", "Синхронізовано"), 2000);
+        } catch (e) {
+          setSyncStatus("err", "Помилка збереження");
+          showToast("Помилка синхронізації", "err");
+        }
+      }
+
+      async function pushDiary() {
+        if (!db) return;
+        try {
+          await set(ref(db, "racion/diary"), DIARY);
+        } catch (e) {}
+      }
+
+      function dateKey(d) {
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      }
+      function keyToDate(k) {
+        const [y, m, d] = k.split("-").map(Number);
+        return new Date(y, m - 1, d);
+      }
+
+      function logToday() {
+        const d = new Date(),
+          key = dateKey(d),
+          dow = d.getDay();
+        if (!DIARY[key]) {
+          DIARY[key] = {
+            you: JSON.parse(JSON.stringify(MENU.you[dow])),
+            her: JSON.parse(JSON.stringify(MENU.her[dow])),
+          };
+          pushDiary();
+        }
+      }
+
+      // ═══════════════════════════════
+      // SCREEN SWITCHER
+      // ═══════════════════════════════
+      window.showScreen = function (s) {
+        document
+          .querySelectorAll(".screen")
+          .forEach((x) => x.classList.remove("active"));
+        document
+          .querySelectorAll(".nav-tab")
+          .forEach((x) => x.classList.remove("active"));
+        document.getElementById("screen-" + s).classList.add("active");
+        document.getElementById("nt-" + s).classList.add("active");
+        if (s === "diary") renderCal();
+      };
+
+      // ═══════════════════════════════
+      // MENU
+      // ═══════════════════════════════
+      window.goToday = function () {
+        curDay = new Date().getDay();
+        renderDays();
+        renderMenuPage();
+      };
+
+      function renderDays() {
+        const sc = document.getElementById("daysScroll"),
+          tod = new Date().getDay();
+        sc.innerHTML = "";
+        [1, 2, 3, 4, 5, 6, 0].forEach((d) => {
+          const b = document.createElement("div");
+          b.className =
+            "day-btn" +
+            (d === curDay ? " active" : "") +
+            (d === tod && d !== curDay ? " today" : "");
+          b.innerHTML = `<span class="ds">${DAYS_SH[d]}</span><span class="da">${DAYS[d].slice(0, 2)}</span>`;
+          b.onclick = () => {
+            curDay = d;
+            renderDays();
+            renderMenuPage();
+          };
+          sc.appendChild(b);
+        });
+      }
+
+      window.setPerson = function (p) {
+        person = p;
+        document.body.className = p === "you" ? "py" : "ph";
+        document
+          .querySelectorAll(".ptab")
+          .forEach((t) => t.classList.remove("active"));
+        document.querySelector(".ptab." + p).classList.add("active");
+        renderMenuPage();
+      };
+
+      window.toggleEdit = function () {
+        editMode = !editMode;
+        document.getElementById("btnEdit").classList.toggle("on", editMode);
+        document.getElementById("editBanner").classList.toggle("on", editMode);
+        document.getElementById("savebar").classList.toggle("on", editMode);
+        document.getElementById("etr").classList.toggle("on", editMode);
+        if (editMode) {
+          const t = MENU[person][curDay].totals;
+          document.getElementById("et_k").value = t.kcal;
+          document.getElementById("et_p").value = t.protein;
+          document.getElementById("et_f").value = t.fat;
+          document.getElementById("et_c").value = t.carbs;
+        }
+        renderMeals();
+      };
+
+      window.cancelEdit = function () {
+        editMode = false;
+        ["btnEdit", "editBanner", "savebar", "etr"].forEach((id) =>
+          document.getElementById(id).classList.remove("on"),
+        );
+        renderMenuPage();
+      };
+
+      window.saveEdit = async function () {
+        const btn = document.getElementById("bsave");
+        btn.disabled = true;
+        btn.textContent = "Зберігаємо...";
+        const t = MENU[person][curDay].totals;
+        t.kcal = parseInt(document.getElementById("et_k").value) || t.kcal;
+        t.protein =
+          parseInt(document.getElementById("et_p").value) || t.protein;
+        t.fat = parseInt(document.getElementById("et_f").value) || t.fat;
+        t.carbs = parseInt(document.getElementById("et_c").value) || t.carbs;
+        await pushMenu();
+        // update diary for today
+        const key = dateKey(new Date()),
+          dow = new Date().getDay();
+        if (String(curDay) === String(dow)) {
+          DIARY[key] = {
+            you: JSON.parse(JSON.stringify(MENU.you[dow])),
+            her: JSON.parse(JSON.stringify(MENU.her[dow])),
+          };
+          await pushDiary();
+        }
+        editMode = false;
+        ["btnEdit", "editBanner", "savebar", "etr"].forEach((id) =>
+          document.getElementById(id).classList.remove("on"),
+        );
+        btn.disabled = false;
+        btn.textContent = "☁️ Зберегти для обох";
+        renderMenuPage();
+        showToast("☁️ Збережено для обох!");
+      };
+
+      function renderMenuPage() {
+        document.getElementById("dayLbl").textContent = DAYS[curDay];
+        document.getElementById("daySub").textContent =
+          person === "you"
+            ? "Твій раціон · 2 200 ккал · дефіцит"
+            : "Її раціон · 1 800 ккал · підтримка";
+        document.getElementById("waterG").textContent =
+          person === "you" ? "3–3.5 л" : "1.5–2 л";
+        renderMeals();
+        renderTotals();
+      }
+
+      function renderTotals() {
+        const t = MENU[person][curDay].totals;
+        document.getElementById("totGrid").innerHTML = `
+    <div class="ti2"><span class="tv">${t.kcal}</span><span class="tl">ккал</span></div>
+    <div class="ti2"><span class="tv">${t.protein}г</span><span class="tl">білок</span></div>
+    <div class="ti2"><span class="tv">${t.fat}г</span><span class="tl">жири</span></div>
+    <div class="ti2"><span class="tv">${t.carbs}г</span><span class="tl">вуглев.</span></div>`;
+      }
+
+      function renderMeals() {
+        const list = document.getElementById("mealsList");
+        list.innerHTML = "";
+        META.forEach((m, idx) => {
+          const meal = MENU[person][curDay][m.key];
+          const card = document.createElement("div");
+          card.className =
+            "meal-card" +
+            (idx > 0 ? " collapsed" : "") +
+            (editMode ? " em" : "");
+          card.id = "mc_" + m.key;
+          let body = "";
+          if (editMode) {
+            const rows = meal.items
+              .map(
+                (it, i) => `
+        <div class="erow">
+          <input class="ein" value="${it.n || ""}" placeholder="Продукт" oninput="upd('${m.key}',${i},'n',this.value)">
+          <input class="ein sm" value="${it.g || ""}" placeholder="г" oninput="upd('${m.key}',${i},'g',this.value)">
+          <button class="bdel" onclick="delRow('${m.key}',${i})">✕</button>
+        </div>`,
+              )
+              .join("");
+            body = `<div class="mbody"><div class="eitems">${rows}</div>
+        <div class="emf">
+          <button class="badd" onclick="addRow('${m.key}')">+ Додати</button>
+          <div class="ek-wrap"><input class="ekc" value="${meal.kcal}" oninput="updKcal('${m.key}',this.value)"><span>ккал</span></div>
+        </div></div>`;
+          } else {
+            const lis = meal.items
+              .map(
+                (it) =>
+                  `<li>${it.n || ""}${it.g ? `<span class="vgr">${it.g}</span>` : ""}</li>`,
+              )
+              .join("");
+            body = `<div class="mbody"><ul class="vitems">${lis}</ul></div>`;
+          }
+          card.innerHTML = `
+      <div class="meal-hdr" onclick="toggleCard('${m.key}')">
+        <div class="meal-left">
+          <div class="meal-ico ${m.cls}">${m.ico}</div>
+          <div><div class="meal-nm">${m.name}</div><div class="meal-tm">${m.time}</div></div>
+        </div>
+        <div class="meal-r">
+          <div class="meal-kc" id="mkc_${m.key}">${meal.kcal} ккал</div>
+          <div class="arr">▼</div>
+        </div>
+      </div>${body}`;
+          list.appendChild(card);
+          if (editMode) card.classList.remove("collapsed");
+        });
+      }
+
+      window.toggleCard = (k) => {
+        if (!editMode)
+          document.getElementById("mc_" + k).classList.toggle("collapsed");
+      };
+      window.upd = (mk, i, f, v) => {
+        MENU[person][curDay][mk].items[i][f] = v;
+      };
+      window.updKcal = (mk, v) => {
+        MENU[person][curDay][mk].kcal = parseInt(v) || 0;
+        const el = document.getElementById("mkc_" + mk);
+        if (el) el.textContent = (parseInt(v) || 0) + " ккал";
+      };
+      window.delRow = (mk, i) => {
+        MENU[person][curDay][mk].items.splice(i, 1);
+        renderMeals();
+      };
+      window.addRow = (mk) => {
+        MENU[person][curDay][mk].items.push({ n: "", g: "" });
+        renderMeals();
+        setTimeout(() => {
+          const c = document.getElementById("mc_" + mk);
+          if (c) {
+            const rr = c.querySelectorAll(".erow");
+            if (rr.length)
+              rr[rr.length - 1].scrollIntoView({
+                behavior: "smooth",
+                block: "nearest",
+              });
+          }
+        }, 80);
+      };
+
+      // ═══════════════════════════════
+      // DIARY
+      // ═══════════════════════════════
+      window.calMove = function (d) {
+        if (calView === "month") {
+          calM += d;
+          if (calM > 11) {
+            calM = 0;
+            calY++;
+          }
+          if (calM < 0) {
+            calM = 11;
+            calY--;
+          }
+        } else {
+          const r = selDate || new Date();
+          r.setDate(r.getDate() + d * 7);
+          selDate = new Date(r);
+          calY = selDate.getFullYear();
+          calM = selDate.getMonth();
+        }
+        renderCal();
+      };
+      window.setCalView = function (v) {
+        calView = v;
+        document
+          .getElementById("vt-month")
+          .classList.toggle("active", v === "month");
+        document
+          .getElementById("vt-week")
+          .classList.toggle("active", v === "week");
+        renderCal();
+      };
+
+      function renderCal() {
+        document.getElementById("calMonth").textContent =
+          `${MONTHS[calM]} ${calY}`;
+        calView === "month" ? renderMonth() : renderWeek();
+      }
+
+      function renderMonth() {
+        const body = document.getElementById("calBody");
+        const today = new Date(),
+          first = new Date(calY, calM, 1),
+          last = new Date(calY, calM + 1, 0);
+        const off = (first.getDay() + 6) % 7;
+        const prevLast = new Date(calY, calM, 0).getDate();
+        let html = `<div class="cal-grid">`;
+        ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"].forEach(
+          (d) => (html += `<div class="cal-dow">${d}</div>`),
+        );
+        for (let i = off - 1; i >= 0; i--)
+          html += `<div class="cal-cell other"><span class="cn">${prevLast - i}</span><span class="cdot"></span></div>`;
+        for (let d = 1; d <= last.getDate(); d++) {
+          const dt = new Date(calY, calM, d),
+            key = dateKey(dt);
+          const isToday = dateKey(today) === key,
+            hasl = !!DIARY[key],
+            isSel = selDate && dateKey(selDate) === key;
+          let cls = "cal-cell";
+          if (isSel) cls += " sel";
+          else if (isToday) cls += " tod";
+          if (hasl && !isSel) cls += " has-log";
+          html += `<div class="${cls}" onclick="selectDate('${key}')"><span class="cn">${d}</span><span class="cdot"></span></div>`;
+        }
+        html += `</div>`;
+        if (selDate) {
+          const key = dateKey(selDate),
+            log = DIARY[key];
+          const ds = selDate.toLocaleDateString("uk-UA", {
+            weekday: "long",
+            day: "numeric",
+            month: "long",
+          });
+          html += `<div class="day-log"><div class="dl-date">${cap(ds)}</div>`;
+          if (log) {
+            html += `<div class="dl-sub">Зафіксований раціон</div>`;
+            ["you", "her"].forEach((p) => {
+              const pd = log[p],
+                pname = p === "you" ? "Ти" : "Вона",
+                pc = p === "you" ? "var(--you)" : "var(--her)";
+              let mh = "";
+              META.forEach((m) => {
+                const ml = pd[m.key];
+                if (ml && ml.items && ml.items.length)
+                  mh += `<div class="lpb-meal"><div class="lpb-mn">${m.ico} ${m.name}</div><div class="lpb-items">${ml.items.map((it) => it.n + (it.g ? " (" + it.g + ")" : "")).join(", ")}</div></div>`;
+              });
+              html += `<div class="lpb"><div class="lpb-hdr"><div class="lpb-dot" style="background:${pc}"></div><div class="lpb-name" style="color:${pc}">${pname}</div><div class="lpb-kc" style="color:${pc}">${pd.totals.kcal} ккал</div></div><div class="lpb-meals">${mh}</div></div>`;
+            });
+          } else {
+            html += `<div class="log-empty"><div class="lei">📭</div><p>Немає записів за цей день</p></div>`;
+          }
+          html += `</div>`;
+        }
+        body.innerHTML = html;
+      }
+
+      function renderWeek() {
+        const ref2 = selDate || new Date(),
+          dow = ref2.getDay(),
+          mon = new Date(ref2);
+        mon.setDate(ref2.getDate() - ((dow + 6) % 7));
+        let html = `<div class="week-view">`;
+        for (let i = 0; i < 7; i++) {
+          const dt = new Date(mon);
+          dt.setDate(mon.getDate() + i);
+          const key = dateKey(dt),
+            log = DIARY[key],
+            dname = DAYS[dt.getDay()];
+          const ds = dt.toLocaleDateString("uk-UA", {
+            day: "numeric",
+            month: "short",
+          });
+          const isToday = dateKey(new Date()) === key;
+          html += `<div class="wr" onclick="selectDate('${key}');setCalView('month')">
+      <div><div class="wr-day">${dname}${isToday ? " 🟢" : ""}</div><div class="wr-date">${ds}</div></div>
+      <div class="wr-r">`;
+          if (log) {
+            html += `<div class="wrbadge y">${log.you.totals.kcal} ккал</div><div class="wrbadge h">${log.her.totals.kcal} ккал</div>`;
+          } else html += `<div class="wrbadge e">Немає даних</div>`;
+          html += `</div></div>`;
+        }
+        html += `</div>`;
+        document.getElementById("calBody").innerHTML = html;
+      }
+
+      window.selectDate = function (key) {
+        selDate = keyToDate(key);
+        calY = selDate.getFullYear();
+        calM = selDate.getMonth();
+        renderCal();
+      };
+      function cap(s) {
+        return s.charAt(0).toUpperCase() + s.slice(1);
+      }
+
+      // ═══════════════════════════════
+      // FOOD SEARCH
+      // ═══════════════════════════════
+      window.doSearch = async function () {
+        const q = document.getElementById("searchInp").value.trim();
+        if (!q) return;
+        await searchFood(q);
+      };
+      window.qs = function (q) {
+        document.getElementById("searchInp").value = q;
+        searchFood(q);
+      };
+
+      async function searchFood(q) {
+        const btn = document.getElementById("searchBtn"),
+          cont = document.getElementById("searchContent");
+        btn.disabled = true;
+        cont.innerHTML = `<div class="sl"><div class="spin" style="margin:0 auto 8px"></div><br>Шукаємо «${q}»...</div>`;
+        try {
+          const res = await fetch(
+            `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&action=process&json=1&page_size=15`,
+          );
+          const data = await res.json();
+          const prods = (data.products || []).filter(
+            (p) => p.nutriments && (p.nutriments["energy-kcal_100g"] || 0) > 0,
+          );
+          if (!prods.length) {
+            cont.innerHTML = `<div class="sl">😔 Нічого не знайдено. Спробуй іншу назву або англійською.</div>`;
+            btn.disabled = false;
+            return;
+          }
+          let html = "";
+          prods.slice(0, 12).forEach((p, i) => {
+            const nm =
+              p.product_name_uk ||
+              p.product_name_ru ||
+              p.product_name ||
+              "Без назви";
+            const br = p.brands || "",
+              nt = p.nutriments;
+            const kc = Math.round(nt["energy-kcal_100g"] || 0);
+            const pr = Math.round((nt["proteins_100g"] || 0) * 10) / 10;
+            const ft = Math.round((nt["fat_100g"] || 0) * 10) / 10;
+            const cb = Math.round((nt["carbohydrates_100g"] || 0) * 10) / 10;
+            html += `<div class="fc" onclick="showFood(${i})">
+        <div class="fc-name">${nm}</div>${br ? `<div class="fc-brand">${br}</div>` : ""}
+        <div class="fc-macros">
+          <div class="fc-m"><span class="fc-mv">${kc}</span><span class="fc-ml">ккал</span></div>
+          <div class="fc-m"><span class="fc-mv">${pr}г</span><span class="fc-ml">білок</span></div>
+          <div class="fc-m"><span class="fc-mv">${ft}г</span><span class="fc-ml">жири</span></div>
+          <div class="fc-m"><span class="fc-mv">${cb}г</span><span class="fc-ml">вуглев.</span></div>
+        </div></div>`;
+          });
+          cont.innerHTML = html;
+          window._fr = prods;
+        } catch (e) {
+          cont.innerHTML = `<div class="sl">⚠️ Немає інтернету або помилка сервера</div>`;
+        }
+        btn.disabled = false;
+      }
+
+      window.showFood = function (i) {
+        const p = window._fr[i],
+          nm =
+            p.product_name_uk ||
+            p.product_name_ru ||
+            p.product_name ||
+            "Без назви",
+          nt = p.nutriments;
+        document.getElementById("mTitle").textContent = nm;
+        document.getElementById("mBrand").textContent = p.brands || "";
+        document.getElementById("mKcal").textContent =
+          Math.round(nt["energy-kcal_100g"] || 0) + " ккал";
+        document.getElementById("mProt").textContent =
+          Math.round((nt["proteins_100g"] || 0) * 10) / 10 + "г";
+        document.getElementById("mFat").textContent =
+          Math.round((nt["fat_100g"] || 0) * 10) / 10 + "г";
+        document.getElementById("mCarb").textContent =
+          Math.round((nt["carbohydrates_100g"] || 0) * 10) / 10 + "г";
+        document.getElementById("mo").classList.add("on");
+      };
+      window.closeMo = () =>
+        document.getElementById("mo").classList.remove("on");
+
+      // ═══════════════════════════════
+      // TOAST
+      // ═══════════════════════════════
+      window.showToast = function (msg, type) {
+        const t = document.getElementById("toast");
+        t.textContent = msg;
+        t.className = "toast" + (type === "err" ? " err" : "") + " on";
+        setTimeout(() => t.classList.remove("on"), 2600);
+      };
+    </script>
+  </body>
+</html>
