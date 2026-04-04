@@ -171,7 +171,9 @@
       .bcancel{padding:12px 13px;background:var(--card2);border:none;border-radius:10px;font-family:'Unbounded',sans-serif;font-size:11px;font-weight:700;color:var(--muted);cursor:pointer;}
 
       /* ── EDIT FOOD SEARCH ── */
-      .esrch{background:rgba(200,245,74,.08);border:1px solid rgba(200,245,74,.2);border-radius:6px;color:var(--accent);font-size:11px;width:26px;height:26px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;}
+      .ein-search{cursor:pointer;color:var(--text);}
+      .ein-search:empty,.ein-search[value=""]{color:var(--muted);}
+      .ein-search:hover{border-color:var(--accent);}
       .item-kcal{font-size:9px;color:var(--accent);font-family:'Unbounded',sans-serif;flex-shrink:0;white-space:nowrap;}
       .msearch{display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:500;}
       .msearch.on{display:flex;flex-direction:column;justify-content:flex-end;}
@@ -1504,8 +1506,7 @@
               const iKc = hasN ? Math.round(parseG(it.g) * it.kcal_per_100 / 100) : 0;
               return `
         <div class="erow">
-          <button class="esrch" onclick="openMSearch('${m.key}',${i})" title="Знайти продукт">🔍</button>
-          <input class="ein" value="${(it.n||'').replace(/"/g,'&quot;')}" placeholder="Продукт" oninput="upd('${m.key}',${i},'n',this.value)">
+          <input class="ein ein-search" value="${(it.n||'').replace(/"/g,'&quot;')}" placeholder="🔍 Пошук в Сільпо..." readonly onclick="openMSearch('${m.key}',${i})">
           <input class="ein sm" value="${it.g||''}" placeholder="г" oninput="updG('${m.key}',${i},this.value)">
           <span class="item-kcal" id="ikcal_${m.key}_${i}" ${!hasN?'style="display:none"':''}>${iKc}кк</span>
           <button class="bdel" onclick="delRow('${m.key}',${i})">✕</button>
