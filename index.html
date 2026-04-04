@@ -1252,7 +1252,7 @@
           document.getElementById("mainNav").style.display = "flex";
           document
             .querySelectorAll(".screen")
-            .forEach((s) => (s.style.display = "block"));
+            .forEach((s) => s.removeAttribute("style"));
           renderDays();
           renderMenuPage();
           logToday();
