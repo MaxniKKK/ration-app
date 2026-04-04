@@ -1459,11 +1459,31 @@
 
       function renderTotals() {
         const t = MENU[person][curDay].totals;
+        let kcal = 0, protein = 0, fat = 0, carbs = 0, anyAuto = false;
+        META.forEach(m => {
+          const meal = MENU[person][curDay][m.key];
+          const calc = calcMealNutr(meal);
+          if (calc) {
+            kcal    += calc.kcal;
+            protein += calc.protein;
+            fat     += calc.fat;
+            carbs   += calc.carbs;
+            anyAuto = true;
+          } else {
+            kcal += meal.kcal || 0;
+          }
+        });
+        protein = Math.round(protein * 10) / 10;
+        fat     = Math.round(fat     * 10) / 10;
+        carbs   = Math.round(carbs   * 10) / 10;
+        const pv = anyAuto ? protein + "г" : t.protein + "г";
+        const fv = anyAuto ? fat     + "г" : t.fat     + "г";
+        const cv = anyAuto ? carbs   + "г" : t.carbs   + "г";
         document.getElementById("totGrid").innerHTML = `
-    <div class="ti2"><span class="tv">${t.kcal}</span><span class="tl">ккал</span></div>
-    <div class="ti2"><span class="tv">${t.protein}г</span><span class="tl">білок</span></div>
-    <div class="ti2"><span class="tv">${t.fat}г</span><span class="tl">жири</span></div>
-    <div class="ti2"><span class="tv">${t.carbs}г</span><span class="tl">вуглев.</span></div>`;
+    <div class="ti2"><span class="tv">${kcal}</span><span class="tl">ккал</span></div>
+    <div class="ti2"><span class="tv">${pv}</span><span class="tl">білок</span></div>
+    <div class="ti2"><span class="tv">${fv}</span><span class="tl">жири</span></div>
+    <div class="ti2"><span class="tv">${cv}</span><span class="tl">вуглев.</span></div>`;
       }
 
       function renderMeals() {
@@ -1480,8 +1500,8 @@
           let body = "";
           if (editMode) {
             const rows = meal.items.map((it, i) => {
-              const hasN = it.kcal_per_100 != null && parseFloat(it.g) > 0;
-              const iKc = hasN ? Math.round(parseFloat(it.g) * it.kcal_per_100 / 100) : 0;
+              const hasN = it.kcal_per_100 != null && parseG(it.g) > 0;
+              const iKc = hasN ? Math.round(parseG(it.g) * it.kcal_per_100 / 100) : 0;
               return `
         <div class="erow">
           <button class="esrch" onclick="openMSearch('${m.key}',${i})" title="Знайти продукт">🔍</button>
@@ -1491,8 +1511,9 @@
           <button class="bdel" onclick="delRow('${m.key}',${i})">✕</button>
         </div>`;
             }).join("");
-            const allAuto = meal.items.length > 0 && meal.items.every(it => it.kcal_per_100 != null && parseFloat(it.g) > 0);
-            const autoTotal = allAuto ? meal.items.reduce((s,it) => s + Math.round(parseFloat(it.g)*it.kcal_per_100/100), 0) : meal.kcal;
+            const mCalc = calcMealNutr(meal);
+            const allAuto = mCalc != null && !mCalc.partial;
+            const autoTotal = mCalc != null ? mCalc.kcal : meal.kcal;
             if (allAuto) meal.kcal = autoTotal;
             body = `<div class="mbody"><div class="eitems">${rows}</div>
         <div class="emf">
@@ -1503,14 +1524,16 @@
           </div>
         </div></div>`;
           } else {
-            const lis = meal.items
-              .map(
-                (it) =>
-                  `<li>${it.n || ""}${it.g ? `<span class="vgr">${it.g}</span>` : ""}</li>`,
-              )
-              .join("");
+            const lis = meal.items.map(it => {
+              const g = parseG(it.g);
+              const iKcal = (it.kcal_per_100 != null && g > 0)
+                ? Math.round(g * it.kcal_per_100 / 100) : null;
+              return `<li>${it.n || ""}${it.g ? `<span class="vgr">${it.g}</span>` : ""}${iKcal != null ? `<span class="item-kcal">${iKcal}кк</span>` : ""}</li>`;
+            }).join("");
             body = `<div class="mbody"><ul class="vitems">${lis}</ul></div>`;
           }
+          const calc = calcMealNutr(meal);
+          const displayKcal = calc != null ? calc.kcal : (meal.kcal || 0);
           card.innerHTML = `
       <div class="meal-hdr" onclick="toggleCard('${m.key}')">
         <div class="meal-left">
@@ -1518,7 +1541,7 @@
           <div><div class="meal-nm">${m.name}</div><div class="meal-tm">${m.time}</div></div>
         </div>
         <div class="meal-r">
-          <div class="meal-kc" id="mkc_${m.key}">${meal.kcal} ккал</div>
+          <div class="meal-kc" id="mkc_${m.key}">${displayKcal} ккал</div>
           <div class="arr">▼</div>
         </div>
       </div>${body}`;
@@ -1566,16 +1589,47 @@
         return n.toLowerCase().trim().replace(/[.#$[\]/\s]+/g, "_");
       }
 
+      // Parse gram value from any string: "220г", "2 шт", "150" → number
+      function parseG(g) {
+        if (!g && g !== 0) return 0;
+        return parseFloat(String(g).replace(/[^\d.]/g, "")) || 0;
+      }
+
+      // Calculate nutrition for a meal from its items' Silpo data
+      // Returns { kcal, protein, fat, carbs, partial } or null if no data at all
+      function calcMealNutr(meal) {
+        const items = meal.items || [];
+        let kcal = 0, protein = 0, fat = 0, carbs = 0, count = 0;
+        for (const it of items) {
+          const g = parseG(it.g);
+          if (it.kcal_per_100 != null && g > 0) {
+            kcal    += Math.round(g * it.kcal_per_100 / 100);
+            protein += it.protein_per_100 != null ? g * it.protein_per_100 / 100 : 0;
+            fat     += it.fat_per_100     != null ? g * it.fat_per_100     / 100 : 0;
+            carbs   += it.carbs_per_100   != null ? g * it.carbs_per_100   / 100 : 0;
+            count++;
+          }
+        }
+        if (!count) return null;
+        return {
+          kcal,
+          protein: Math.round(protein * 10) / 10,
+          fat:     Math.round(fat     * 10) / 10,
+          carbs:   Math.round(carbs   * 10) / 10,
+          partial: count < items.length,
+        };
+      }
+
       function recalcMealKcal(mk) {
         const meal = MENU[person][curDay][mk];
-        const allAuto = meal.items.length > 0 && meal.items.every(it => it.kcal_per_100 != null && parseFloat(it.g) > 0);
-        if (!allAuto) return;
-        const total = meal.items.reduce((s, it) => s + Math.round(parseFloat(it.g) * it.kcal_per_100 / 100), 0);
-        meal.kcal = total;
+        const calc = calcMealNutr(meal);
+        if (!calc) return;
+        meal.kcal = calc.kcal;
         const el = document.getElementById("mkc_" + mk);
-        if (el) el.textContent = total + " ккал";
+        if (el) el.textContent = calc.kcal + " ккал";
         const ekc = document.getElementById("ekc_" + mk);
-        if (ekc) { ekc.value = total; ekc.style.borderColor = "var(--accent)"; ekc.style.color = "var(--accent)"; }
+        if (ekc) { ekc.value = calc.kcal; ekc.style.borderColor = "var(--accent)"; ekc.style.color = "var(--accent)"; }
+        renderTotals();
       }
 
       window.updG = function(mk, i, v) {
@@ -1583,8 +1637,9 @@
         const iEl = document.getElementById("ikcal_" + mk + "_" + i);
         if (iEl) {
           const it = MENU[person][curDay][mk].items[i];
-          if (it.kcal_per_100 && parseFloat(v) > 0) {
-            iEl.textContent = Math.round(parseFloat(v) * it.kcal_per_100 / 100) + "кк";
+          const g = parseG(v);
+          if (it.kcal_per_100 && g > 0) {
+            iEl.textContent = Math.round(g * it.kcal_per_100 / 100) + "кк";
             iEl.style.display = "";
           } else {
             iEl.style.display = "none";
