@@ -1379,7 +1379,21 @@
           onValue(menuRef, (snap) => {
             const val = snap.val();
             if (val) MENU = val;
-            else set(ref(db, "racion/menu"), MENU); // first time — save defaults
+            // Auto-migrate: replace menu if it contains forbidden products
+            const FORBIDDEN = ['Лосось','Яловичина','Броколі','Свинина','Форель','Мигдаль','Горіх'];
+            const hasForbidden = ['you','her'].some(p =>
+              [0,1,2,3,4,5,6].some(d =>
+                ['breakfast','snack1','lunch','snack2','dinner'].some(mk =>
+                  (MENU[p]?.[d]?.[mk]?.items||[]).some(it =>
+                    FORBIDDEN.some(f => it.n?.includes(f))
+                  )
+                )
+              )
+            );
+            if (hasForbidden || !val) {
+              applyPlanTemplate();
+              set(ref(db, "racion/menu"), MENU);
+            }
             renderMenuPage();
             setSyncStatus("ok", "Синхронізовано");
           });
