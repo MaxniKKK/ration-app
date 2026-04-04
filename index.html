@@ -464,20 +464,19 @@
       </div>
       <div class="scontent" id="searchContent">
         <div class="shint">
-          <div class="shi">🥑</div>
+          <div class="shi">🛒</div>
           <p>
-            Пошук по базі Open Food Facts — точні КБЖУ на 100г для будь-якого
-            продукту
+            Пошук продуктів Сільпо з КБЖУ на 100г — натисни на продукт щоб побачити деталі
           </p>
           <div class="exs">
-            <div class="exch" onclick="qs('курка')">🍗 Курка</div>
+            <div class="exch" onclick="qs('куряча грудка')">🍗 Куряча грудка</div>
             <div class="exch" onclick="qs('гречка')">🌾 Гречка</div>
             <div class="exch" onclick="qs('яйця')">🥚 Яйця</div>
             <div class="exch" onclick="qs('кефір')">🥛 Кефір</div>
             <div class="exch" onclick="qs('тунець')">🐟 Тунець</div>
-            <div class="exch" onclick="qs('гранола')">🌰 Гранола</div>
+            <div class="exch" onclick="qs('йогурт грецький')">🫙 Йогурт</div>
             <div class="exch" onclick="qs('рис')">🍚 Рис</div>
-            <div class="exch" onclick="qs('картопля')">🥔 Картопля</div>
+            <div class="exch" onclick="qs('лосось')">🍣 Лосось</div>
           </div>
         </div>
       </div>
@@ -544,6 +543,11 @@
       // ═══════════════════════════════
       // CONSTANTS
       // ═══════════════════════════════
+      // Silpo branch UUID (Київ, просп. Івасюка 46 — externalId 1998)
+      // To change: fetch https://sf-ecom-api.silpo.ua/v1/uk/branches and pick branchId
+      const SILPO_BRANCH = "1ed43e73-051b-6842-a111-a5ad042eb496";
+      const SILPO_API = "https://sf-ecom-api.silpo.ua/v1/uk/branches";
+
       const DAYS = [
         "Неділя",
         "Понеділок",
@@ -1607,25 +1611,22 @@
         const res = document.getElementById("msRes");
         const btn = document.querySelector(".msd-btn");
         btn.disabled = true;
-        res.innerHTML = `<div style="text-align:center;padding:20px;color:var(--muted);font-size:12px"><div class="spin" style="margin:0 auto 8px"></div><br>Шукаємо...</div>`;
+        res.innerHTML = `<div style="text-align:center;padding:20px;color:var(--muted);font-size:12px"><div class="spin" style="margin:0 auto 8px"></div><br>Шукаємо в Сільпо...</div>`;
         try {
-          const r = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&action=process&json=1&page_size=15`);
+          const r = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products?limit=15&search=${encodeURIComponent(q)}`, {
+            headers: { accept: "application/json" }
+          });
           const data = await r.json();
-          const prods = (data.products || []).filter(p => p.nutriments && (p.nutriments["energy-kcal_100g"] || 0) > 0);
-          if (!prods.length) {
-            res.innerHTML = `<div style="text-align:center;padding:20px;color:var(--muted);font-size:12px">😔 Нічого не знайдено</div>`;
+          const items = data.items || [];
+          if (!items.length) {
+            res.innerHTML = `<div style="text-align:center;padding:20px;color:var(--muted);font-size:12px">😔 Нічого не знайдено в Сільпо</div>`;
           } else {
-            _msFoods = prods;
-            res.innerHTML = prods.slice(0, 12).map((p, idx) => {
-              const nm = p.product_name_uk || p.product_name_ru || p.product_name || "Без назви";
-              const nt = p.nutriments;
-              const kc = Math.round(nt["energy-kcal_100g"] || 0);
-              const pr = Math.round((nt["proteins_100g"] || 0) * 10) / 10;
-              const ft = Math.round((nt["fat_100g"] || 0) * 10) / 10;
-              const cb = Math.round((nt["carbohydrates_100g"] || 0) * 10) / 10;
+            _msFoods = items;
+            res.innerHTML = items.map((p, idx) => {
+              const price = p.displayPrice ? `${p.displayPrice} грн/${p.displayRatio || "шт"}` : "";
               return `<div class="msd-item" onclick="selectFoodForEdit(${idx})">
-                <div class="msd-iname">${nm}${p.brands ? ` <span style="color:var(--muted);font-weight:400">${p.brands}</span>` : ""}</div>
-                <div class="msd-imac"><span>${kc} ккал</span><span>Б ${pr}г</span><span>Ж ${ft}г</span><span>В ${cb}г</span></div>
+                <div class="msd-iname">${p.title}${p.brandTitle ? ` <span style="color:var(--muted);font-weight:400">${p.brandTitle}</span>` : ""}</div>
+                <div class="msd-imac"><span style="color:var(--muted)">${price}</span><span style="color:var(--accent)">КБЖУ завантажиться...</span></div>
               </div>`;
             }).join("");
           }
@@ -1635,29 +1636,61 @@
         btn.disabled = false;
       };
 
-      window.selectFoodForEdit = function(idx) {
+      // Parse Silpo nutrient attributeGroups → { kcal, protein, fat, carbs }
+      function parseSilpoNutr(attributeGroups) {
+        const group = (attributeGroups || []).find(ag => ag.key === "nutrient");
+        if (!group) return null;
+        const get = (key) => {
+          const a = group.attributes.find(a => a.attribute.key === key);
+          if (!a) return null;
+          const v = a.value;
+          // title holds numeric value; key holds "kcal/kJ" string for calorie
+          if (key === "calorie") {
+            const raw = v.key || v.title || "";
+            return parseFloat(String(raw).replace(",",".").split("/")[0]) || null;
+          }
+          return v.title != null ? parseFloat(v.title) : null;
+        };
+        const kcal = get("calorie");
+        if (!kcal) return null;
+        return { kcal, protein: get("proteins"), fat: get("fats"), carbs: get("carbohydrates") };
+      }
+
+      window.selectFoodForEdit = async function(idx) {
         if (!_msCtx) return;
         const p = _msFoods[idx];
-        const nm = p.product_name_uk || p.product_name_ru || p.product_name || "Без назви";
-        const nt = p.nutriments;
-        const nutr = {
-          kcal: Math.round(nt["energy-kcal_100g"] || 0),
-          protein: Math.round((nt["proteins_100g"] || 0) * 10) / 10,
-          fat: Math.round((nt["fat_100g"] || 0) * 10) / 10,
-          carbs: Math.round((nt["carbohydrates_100g"] || 0) * 10) / 10,
-        };
+        const res = document.getElementById("msRes");
+        // Show loading state on clicked item
+        const el = res.querySelectorAll(".msd-item")[idx];
+        if (el) el.querySelector(".msd-imac").innerHTML = `<span style="color:var(--accent)">Завантажуємо КБЖУ...</span>`;
+
+        let nutr = null;
+        try {
+          const r = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products/${p.slug}`, {
+            headers: { accept: "application/json" }
+          });
+          const detail = await r.json();
+          nutr = parseSilpoNutr(detail.attributeGroups);
+        } catch(e) {}
+
         const { mk, i } = _msCtx;
         const item = MENU[person][curDay][mk].items[i];
-        item.n = nm;
-        item.kcal_per_100 = nutr.kcal;
-        item.protein_per_100 = nutr.protein;
-        item.fat_per_100 = nutr.fat;
-        item.carbs_per_100 = nutr.carbs;
-        // Cache to Firebase
-        if (db) {
-          const key = foodKey(nm);
-          FOODS[key] = nutr;
-          set(ref(db, "racion/foods/" + key), nutr).catch(() => {});
+        item.n = p.title;
+        item.silpoId = p.id;
+        item.silpoSlug = p.slug;
+        item.silpoPrice = p.displayPrice;
+        item.silpoPriceRatio = p.displayRatio;
+        if (nutr) {
+          item.kcal_per_100 = nutr.kcal;
+          item.protein_per_100 = nutr.protein;
+          item.fat_per_100 = nutr.fat;
+          item.carbs_per_100 = nutr.carbs;
+          // Cache to Firebase
+          if (db) {
+            const key = foodKey(p.title);
+            FOODS[key] = nutr;
+            set(ref(db, "racion/foods/" + key), nutr).catch(() => {});
+          }
         }
         closeMSearch();
         renderMeals();
@@ -1800,7 +1833,7 @@
       }
 
       // ═══════════════════════════════
-      // FOOD SEARCH
+      // FOOD SEARCH (Silpo)
       // ═══════════════════════════════
       window.doSearch = async function () {
         const q = document.getElementById("searchInp").value.trim();
@@ -1816,40 +1849,27 @@
         const btn = document.getElementById("searchBtn"),
           cont = document.getElementById("searchContent");
         btn.disabled = true;
-        cont.innerHTML = `<div class="sl"><div class="spin" style="margin:0 auto 8px"></div><br>Шукаємо «${q}»...</div>`;
+        cont.innerHTML = `<div class="sl"><div class="spin" style="margin:0 auto 8px"></div><br>Шукаємо в Сільпо «${q}»...</div>`;
         try {
           const res = await fetch(
-            `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&action=process&json=1&page_size=15`,
+            `${SILPO_API}/${SILPO_BRANCH}/products?limit=15&search=${encodeURIComponent(q)}`,
+            { headers: { accept: "application/json" } }
           );
           const data = await res.json();
-          const prods = (data.products || []).filter(
-            (p) => p.nutriments && (p.nutriments["energy-kcal_100g"] || 0) > 0,
-          );
+          const prods = data.items || [];
           if (!prods.length) {
-            cont.innerHTML = `<div class="sl">😔 Нічого не знайдено. Спробуй іншу назву або англійською.</div>`;
+            cont.innerHTML = `<div class="sl">😔 Нічого не знайдено в Сільпо.</div>`;
             btn.disabled = false;
             return;
           }
           let html = "";
-          prods.slice(0, 12).forEach((p, i) => {
-            const nm =
-              p.product_name_uk ||
-              p.product_name_ru ||
-              p.product_name ||
-              "Без назви";
-            const br = p.brands || "",
-              nt = p.nutriments;
-            const kc = Math.round(nt["energy-kcal_100g"] || 0);
-            const pr = Math.round((nt["proteins_100g"] || 0) * 10) / 10;
-            const ft = Math.round((nt["fat_100g"] || 0) * 10) / 10;
-            const cb = Math.round((nt["carbohydrates_100g"] || 0) * 10) / 10;
+          prods.forEach((p, i) => {
+            const price = p.displayPrice ? `${p.displayPrice} грн/${p.displayRatio || "шт"}` : "";
             html += `<div class="fc" onclick="showFood(${i})">
-        <div class="fc-name">${nm}</div>${br ? `<div class="fc-brand">${br}</div>` : ""}
-        <div class="fc-macros">
-          <div class="fc-m"><span class="fc-mv">${kc}</span><span class="fc-ml">ккал</span></div>
-          <div class="fc-m"><span class="fc-mv">${pr}г</span><span class="fc-ml">білок</span></div>
-          <div class="fc-m"><span class="fc-mv">${ft}г</span><span class="fc-ml">жири</span></div>
-          <div class="fc-m"><span class="fc-mv">${cb}г</span><span class="fc-ml">вуглев.</span></div>
+        <div class="fc-name">${p.title}</div>
+        ${p.brandTitle ? `<div class="fc-brand">${p.brandTitle} · ${price}</div>` : `<div class="fc-brand">${price}</div>`}
+        <div class="fc-macros" id="fcm_${i}">
+          <div class="fc-m" style="grid-column:1/-1;text-align:left"><span class="fc-mv" style="font-size:10px;color:var(--muted)">Натисни щоб побачити КБЖУ</span></div>
         </div></div>`;
           });
           cont.innerHTML = html;
@@ -1860,25 +1880,39 @@
         btn.disabled = false;
       }
 
-      window.showFood = function (i) {
-        const p = window._fr[i],
-          nm =
-            p.product_name_uk ||
-            p.product_name_ru ||
-            p.product_name ||
-            "Без назви",
-          nt = p.nutriments;
-        document.getElementById("mTitle").textContent = nm;
-        document.getElementById("mBrand").textContent = p.brands || "";
-        document.getElementById("mKcal").textContent =
-          Math.round(nt["energy-kcal_100g"] || 0) + " ккал";
-        document.getElementById("mProt").textContent =
-          Math.round((nt["proteins_100g"] || 0) * 10) / 10 + "г";
-        document.getElementById("mFat").textContent =
-          Math.round((nt["fat_100g"] || 0) * 10) / 10 + "г";
-        document.getElementById("mCarb").textContent =
-          Math.round((nt["carbohydrates_100g"] || 0) * 10) / 10 + "г";
+      window.showFood = async function (i) {
+        const p = window._fr[i];
+        // Show modal immediately with loading state
+        document.getElementById("mTitle").textContent = p.title;
+        document.getElementById("mBrand").textContent = p.brandTitle || "";
+        document.getElementById("mKcal").textContent = "...";
+        document.getElementById("mProt").textContent = "...";
+        document.getElementById("mFat").textContent = "...";
+        document.getElementById("mCarb").textContent = "...";
         document.getElementById("mo").classList.add("on");
+        // Fetch details
+        try {
+          const r = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products/${p.slug}`, {
+            headers: { accept: "application/json" }
+          });
+          const detail = await r.json();
+          const nutr = parseSilpoNutr(detail.attributeGroups);
+          document.getElementById("mKcal").textContent = nutr?.kcal != null ? nutr.kcal + " ккал" : "—";
+          document.getElementById("mProt").textContent = nutr?.protein != null ? nutr.protein + "г" : "—";
+          document.getElementById("mFat").textContent = nutr?.fat != null ? nutr.fat + "г" : "—";
+          document.getElementById("mCarb").textContent = nutr?.carbs != null ? nutr.carbs + "г" : "—";
+          // Also update the card in list
+          const fcm = document.getElementById("fcm_" + i);
+          if (fcm && nutr) {
+            fcm.innerHTML = `
+              <div class="fc-m"><span class="fc-mv">${nutr.kcal}</span><span class="fc-ml">ккал</span></div>
+              <div class="fc-m"><span class="fc-mv">${nutr.protein ?? "—"}г</span><span class="fc-ml">білок</span></div>
+              <div class="fc-m"><span class="fc-mv">${nutr.fat ?? "—"}г</span><span class="fc-ml">жири</span></div>
+              <div class="fc-m"><span class="fc-mv">${nutr.carbs ?? "—"}г</span><span class="fc-ml">вуглев.</span></div>`;
+          }
+        } catch(e) {
+          document.getElementById("mKcal").textContent = "—";
+        }
       };
       window.closeMo = () =>
         document.getElementById("mo").classList.remove("on");
