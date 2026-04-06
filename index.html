@@ -187,8 +187,9 @@
     <div class="screen" id="screen-search" style="display: none">
       <!-- Tabs -->
       <div class="fd-tabs">
-        <div class="fd-tab active" id="fd-tab-dir" onclick="showFdTab('dir')">📚 Довідник</div>
-        <div class="fd-tab" id="fd-tab-silpo" onclick="showFdTab('silpo')">🔍 Пошук Сільпо</div>
+        <div class="fd-tab active" id="fd-tab-dir" onclick="showFdTab('dir')">📚 Продукти</div>
+        <div class="fd-tab" id="fd-tab-recipes" onclick="showFdTab('recipes')">🍳 Рецепти</div>
+        <div class="fd-tab" id="fd-tab-silpo" onclick="showFdTab('silpo')">🔍 Сільпо</div>
       </div>
 
       <!-- DIRECTORY -->
@@ -210,6 +211,11 @@
           <button class="dir-cancel-sel" onclick="toggleDirSelectMode()">✕</button>
         </div>
         <div class="dir-list" id="dirList"></div>
+      </div>
+
+      <!-- RECIPES (grouped by category) -->
+      <div id="fd-recipes" style="display:none">
+        <div class="recipes-list" id="recipesList"></div>
       </div>
 
       <!-- SILPO SEARCH -->

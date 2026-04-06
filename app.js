@@ -1073,11 +1073,14 @@ window.selectFoodForEdit = async function(idx) {
 let _editingFoodKey = null;
 
 window.showFdTab = function(tab) {
-  document.getElementById('fd-tab-dir').classList.toggle('active', tab === 'dir');
-  document.getElementById('fd-tab-silpo').classList.toggle('active', tab === 'silpo');
-  document.getElementById('fd-dir').style.display   = tab === 'dir'   ? '' : 'none';
-  document.getElementById('fd-silpo').style.display = tab === 'silpo' ? '' : 'none';
-  if (tab === 'dir') renderFoodsDir();
+  ['dir', 'recipes', 'silpo'].forEach(t => {
+    const tabEl = document.getElementById('fd-tab-' + t);
+    const ctEl  = document.getElementById('fd-' + t);
+    if (tabEl) tabEl.classList.toggle('active', t === tab);
+    if (ctEl)  ctEl.style.display = t === tab ? '' : 'none';
+  });
+  if (tab === 'dir')     renderFoodsDir();
+  if (tab === 'recipes') renderRecipesView();
 };
 
 window.renderFoodsDir = function() {
@@ -1085,6 +1088,7 @@ window.renderFoodsDir = function() {
   const list = document.getElementById('dirList');
   if (!list) return;
   const entries = Object.entries(FOODS)
+    .filter(([k, v]) => v && v.type !== 'recipe')  // recipes live in the 🍳 Рецепти tab
     .map(([key, val]) => ({
       key,
       name: val.name || key.replace(/_/g,' '),
@@ -3133,6 +3137,155 @@ ${ingList}
   sub.textContent = `Розраховано ${ok} з ${entries.length}`;
   renderFoodsDir();
   setTimeout(() => overlay.classList.remove('on'), 2500);
+}
+
+// ── RECIPES TAB: grouping, rendering, deletion ──────────────────────────
+let _expandedRecipeCats = new Set();
+
+// Group every type='recipe' entry in FOODS into RECIPE_CATEGORIES buckets.
+// A recipe can match multiple categories (klopotenko's recipeCategory is
+// comma-separated) — duplicates across buckets are intentional so users can
+// find a recipe from any of its categories.
+function groupRecipesByCategory() {
+  const groups = RECIPE_CATEGORIES.map(c => ({ ...c, recipes: [] }));
+  const other = { key: 'other', label: 'Інше', icon: '📦', recipes: [] };
+  for (const [key, food] of Object.entries(FOODS)) {
+    if (!food || food.type !== 'recipe') continue;
+    let matched = false;
+    for (const grp of groups) {
+      if (grp.key === 'breakfast') {
+        // Breakfast is matched by tag or name (klopotenko has no breakfast cat)
+        if ((food.tags || []).includes('breakfast') || /снідан|каш/i.test(food.name)) {
+          grp.recipes.push({ key, food });
+          matched = true;
+        }
+      } else if ((food.category || '').includes(grp.label)) {
+        grp.recipes.push({ key, food });
+        matched = true;
+      }
+    }
+    if (!matched) other.recipes.push({ key, food });
+  }
+  return [...groups, other].filter(g => g.recipes.length);
+}
+
+window.renderRecipesView = function() {
+  const list = document.getElementById('recipesList');
+  if (!list) return;
+  const groups = groupRecipesByCategory();
+  if (!groups.length) {
+    list.innerHTML = `<div class="dir-empty">Немає рецептів у довіднику.<br>Натисни <strong>📥 База</strong> у вкладці Продукти, щоб імпортувати ~1600 рецептів klopotenko.com.</div>`;
+    return;
+  }
+  list.innerHTML = groups.map(grp => {
+    const noNutr = grp.recipes.filter(r => !r.food.kcal).length;
+    const isExpanded = _expandedRecipeCats.has(grp.key);
+    const expandedList = isExpanded
+      ? `<div class="recipe-cat-list">
+          ${grp.recipes.slice(0, 100).map(r => `
+            <div class="recipe-item" onclick="openPCard('${r.key}')">
+              <span class="recipe-item-kcal${r.food.kcal ? '' : ' empty'}">${r.food.kcal ? Math.round(r.food.kcal) : '—'}</span>
+              <span class="recipe-item-name">${escapeHtml(r.food.name)}</span>
+            </div>
+          `).join('')}
+          ${grp.recipes.length > 100 ? `<div class="recipe-item-more">... і ще ${grp.recipes.length - 100} рецептів</div>` : ''}
+        </div>`
+      : '';
+    return `<div class="recipe-cat">
+      <div class="recipe-cat-hdr" onclick="toggleRecipeCat('${grp.key}')">
+        <span class="recipe-cat-icon">${grp.icon}</span>
+        <div class="recipe-cat-info">
+          <div class="recipe-cat-name">${grp.label}</div>
+          <div class="recipe-cat-meta">${grp.recipes.length} рецептів${noNutr ? ` · <span class="nonutr">${noNutr} без КБЖУ</span>` : ''}</div>
+        </div>
+        <span class="recipe-cat-arr">${isExpanded ? '▼' : '▶'}</span>
+      </div>
+      <div class="recipe-cat-actions">
+        ${noNutr ? `<button class="compute-btn" onclick="event.stopPropagation();promptComputeCategoryRecipes('${grp.key}')">🤖 КБЖУ (${noNutr})</button>` : ''}
+        <button class="delete-btn" onclick="event.stopPropagation();confirmDeleteRecipeCategory('${grp.key}')">🗑 Видалити всі</button>
+      </div>
+      ${expandedList}
+    </div>`;
+  }).join('');
+};
+
+window.toggleRecipeCat = function(key) {
+  if (_expandedRecipeCats.has(key)) _expandedRecipeCats.delete(key);
+  else _expandedRecipeCats.add(key);
+  renderRecipesView();
+};
+
+// Compute nutrition for a category bucket (uses our group helper to find
+// the actual recipe entries — works even when category labels don't match
+// klopotenko strings exactly, e.g. our 'breakfast' bucket).
+window.promptComputeCategoryRecipes = function(catKey) {
+  const groups = groupRecipesByCategory();
+  const grp = groups.find(g => g.key === catKey);
+  if (!grp) return;
+  const todo = grp.recipes.filter(r => !r.food.kcal).map(r => [r.key, r.food]);
+  if (!todo.length) { showToast('У цій категорії всі рецепти вже мають КБЖУ'); return; }
+  showConfirm({
+    icon: '🤖',
+    title: `КБЖУ для "${grp.label}"`,
+    text: `${todo.length} рецептів буде відправлено на ${AI_PROVIDERS[getAIProvider()].label}. Час: ~${Math.max(1, Math.ceil(todo.length / 30))} хв. Gemini Flash безкоштовний, Claude ~$0.001/рецепт.`,
+    actions: [
+      { label: 'Запустити', style: 'primary', onClick: () => computeCategoryNutrition(todo).then(() => renderRecipesView()) },
+      { label: 'Скасувати', style: 'cancel' },
+    ],
+  });
+};
+
+window.confirmDeleteRecipeCategory = function(catKey) {
+  const groups = groupRecipesByCategory();
+  const grp = groups.find(g => g.key === catKey);
+  if (!grp) return;
+  showConfirm({
+    icon: '🗑',
+    title: `Видалити "${grp.label}"?`,
+    text: `${grp.recipes.length} рецептів буде видалено з довідника. Це не можна відмінити.`,
+    actions: [
+      { label: `Видалити ${grp.recipes.length}`, style: 'danger', onClick: () => deleteRecipeCategory(catKey) },
+      { label: 'Скасувати', style: 'cancel' },
+    ],
+  });
+};
+
+async function deleteRecipeCategory(catKey) {
+  const groups = groupRecipesByCategory();
+  const grp = groups.find(g => g.key === catKey);
+  if (!grp || !grp.recipes.length) return;
+  const overlay = document.getElementById('progOverlay');
+  const bar     = document.getElementById('progBar');
+  const title   = document.getElementById('progTitle');
+  const sub     = document.getElementById('progSub');
+  overlay.classList.add('on');
+  title.textContent = '🗑 Видаляємо рецепти...';
+  sub.textContent = `${grp.recipes.length} записів`;
+  bar.style.width = '20%';
+
+  // Dedupe keys (a recipe might be in multiple categories — but we delete from
+  // FOODS by key so each unique key is removed once)
+  const keys = [...new Set(grp.recipes.map(r => r.key))];
+  const batch = {};
+  for (const k of keys) {
+    delete FOODS[k];
+    batch['racion/foods/' + k] = null;
+  }
+  if (db) {
+    const allKeys = Object.keys(batch);
+    for (let i = 0; i < allKeys.length; i += 200) {
+      const chunk = {};
+      allKeys.slice(i, i + 200).forEach(k => chunk[k] = batch[k]);
+      try { await update(ref(db), chunk); } catch (e) { console.warn('[delete-cat]', e); }
+      bar.style.width = `${20 + (i + 200) / allKeys.length * 75}%`;
+      sub.textContent = `Видалено ${Math.min(i + 200, allKeys.length)} з ${allKeys.length}`;
+    }
+  }
+  bar.style.width = '100%';
+  title.textContent = '✓ Видалено';
+  sub.textContent = `${keys.length} рецептів видалено`;
+  renderRecipesView();
+  setTimeout(() => overlay.classList.remove('on'), 1500);
 }
 
 // ── KLOPOTENKO RECIPE IMPORT ─────────────────────────────────────────────

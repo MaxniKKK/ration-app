@@ -352,6 +352,29 @@ body{background:var(--bg);color:var(--text);font-family:'Golos Text',sans-serif;
 .pcard-price{font-size:13px;color:var(--text);margin-bottom:16px;min-height:18px;}
 .pcard-src{font-size:11px;color:var(--muted);margin-bottom:16px;}
 .pcard-src a{color:var(--blue);text-decoration:none;}
+/* ── RECIPES TAB ── */
+.recipes-list{padding:12px 16px 32px;max-width:500px;margin:0 auto;}
+.recipe-cat{background:var(--card);border:1px solid var(--border);border-radius:12px;margin-bottom:8px;overflow:hidden;}
+.recipe-cat-hdr{display:flex;align-items:center;padding:13px 14px;cursor:pointer;gap:11px;}
+.recipe-cat-icon{font-size:22px;flex-shrink:0;}
+.recipe-cat-info{flex:1;min-width:0;}
+.recipe-cat-name{font-family:'Unbounded',sans-serif;font-size:12px;font-weight:700;}
+.recipe-cat-meta{font-size:10px;color:var(--muted);margin-top:2px;}
+.recipe-cat-meta .nonutr{color:var(--accent2);}
+.recipe-cat-arr{color:var(--muted);font-size:10px;flex-shrink:0;}
+.recipe-cat-actions{display:flex;gap:6px;padding:0 12px 11px;}
+.recipe-cat-actions button{flex:1;padding:8px 9px;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'Unbounded',sans-serif;font-size:9px;font-weight:700;cursor:pointer;}
+.recipe-cat-actions .compute-btn{background:rgba(200,245,74,.07);border-color:rgba(200,245,74,.25);color:var(--accent);}
+.recipe-cat-actions .delete-btn{background:rgba(239,68,68,.08);border-color:rgba(239,68,68,.2);color:#ef4444;}
+.recipe-cat-list{border-top:1px solid var(--border);max-height:380px;overflow-y:auto;}
+.recipe-item{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.03);cursor:pointer;}
+.recipe-item:last-child{border-bottom:none;}
+.recipe-item:active{background:var(--card2);}
+.recipe-item-kcal{font-family:'Unbounded',sans-serif;font-size:10px;font-weight:700;color:var(--accent);min-width:36px;text-align:right;flex-shrink:0;}
+.recipe-item-kcal.empty{color:var(--muted);}
+.recipe-item-name{flex:1;font-size:12px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.recipe-item-more{padding:10px 14px;font-size:10px;color:var(--muted);text-align:center;font-style:italic;}
+
 /* ── RECIPE DISPLAY (in product card and directory) ── */
 .pcard-recipe-section{margin-bottom:14px;padding-top:12px;border-top:1px solid var(--border);}
 .pcard-recipe-label{font-family:'Unbounded',sans-serif;font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px;}
