@@ -1430,20 +1430,17 @@ window.refetchAllFoods = async function() {
 };
 
 function getItemSourceLink(it) {
-  // Direct silpoSlug on item → link to Silpo
-  if (it.silpoSlug) {
-    return `<a class="item-src-a" href="https://silpo.ua/product/${it.silpoSlug}" target="_blank" title="Відкрити в Сільпо">↗</a>`;
-  }
-  // Check FOODS directory
+  // FOODS is the single source of truth. Always show 📚 if the product
+  // exists in the directory; additionally show ↗ Сільпо if the directory
+  // entry has a silpoSlug attached.
   const key = foodKey(it.n || '');
   const food = FOODS[key];
-  if (food?.silpoSlug && food.source === 'silpo') {
-    return `<a class="item-src-a" href="https://silpo.ua/product/${food.silpoSlug}" target="_blank" title="Відкрити в Сільпо">↗</a>`;
+  if (!food) return '';
+  let html = `<span class="item-src-dir" onclick="openDirItem('${key}')" title="Відкрити картку продукту">📚</span>`;
+  if (food.silpoSlug) {
+    html += `<a class="item-src-a" href="https://silpo.ua/product/${food.silpoSlug}" target="_blank" title="Відкрити в Сільпо" onclick="event.stopPropagation()">↗</a>`;
   }
-  if (food) {
-    return `<span class="item-src-dir" onclick="openDirItem('${key}')" title="Відкрити в Довіднику">📚</span>`;
-  }
-  return '';
+  return html;
 }
 
 window.saveFoodItem = function(originalKey) {
