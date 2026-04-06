@@ -364,6 +364,34 @@
       .mg-i:nth-child(4) .mg-v{color:#f87171;}
       .mod-close{display:block;width:100%;padding:12px;background:var(--card2);border:none;border-radius:11px;font-family:'Unbounded',sans-serif;font-size:11px;font-weight:700;color:var(--muted);cursor:pointer;margin-top:7px;}
 
+      /* ── PRODUCT CARD MODAL ── */
+      .pcard-modal{position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:620;display:none;align-items:flex-end;}
+      .pcard-modal.on{display:flex;}
+      .pcard-sheet{background:var(--card);border-radius:20px 20px 0 0;width:100%;max-height:90vh;display:flex;flex-direction:column;overflow-y:auto;}
+      .pcard-drag{width:38px;height:3px;background:var(--border);border-radius:2px;margin:11px auto 0;flex-shrink:0;}
+      .pcard-img-wrap{padding:16px 16px 0;flex-shrink:0;}
+      .pcard-img{width:100%;height:200px;object-fit:contain;background:var(--card2);border-radius:14px;display:block;}
+      .pcard-img-none{width:100%;height:140px;background:var(--card2);border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:52px;}
+      .pcard-body{padding:16px 16px 28px;}
+      .pcard-alias{font-family:'Unbounded',sans-serif;font-size:16px;font-weight:800;margin-bottom:3px;line-height:1.3;}
+      .pcard-stitle{font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.4;}
+      .pcard-per100{font-family:'Unbounded',sans-serif;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:9px;}
+      .pcard-nutr{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:14px;}
+      .pcard-n{text-align:center;background:var(--card2);border-radius:10px;padding:10px 4px;border:1px solid var(--border);}
+      .pcard-nv{font-family:'Unbounded',sans-serif;font-size:14px;font-weight:800;display:block;margin-bottom:2px;}
+      .pcard-nl{font-size:8px;color:var(--muted);}
+      .pcard-n:nth-child(1) .pcard-nv{color:var(--accent);}
+      .pcard-n:nth-child(2) .pcard-nv{color:var(--blue);}
+      .pcard-n:nth-child(3) .pcard-nv{color:#fbbf24;}
+      .pcard-n:nth-child(4) .pcard-nv{color:#f87171;}
+      .pcard-price{font-size:13px;color:var(--text);margin-bottom:16px;min-height:18px;}
+      .pcard-src{font-size:11px;color:var(--muted);margin-bottom:16px;}
+      .pcard-src a{color:var(--blue);text-decoration:none;}
+      .pcard-actions{display:flex;gap:8px;}
+      .pcard-open-a{flex:1;padding:13px;background:var(--accent);border:none;border-radius:13px;font-family:'Unbounded',sans-serif;font-size:11px;font-weight:700;color:#000;cursor:pointer;text-decoration:none;text-align:center;display:flex;align-items:center;justify-content:center;}
+      .pcard-edit-btn{padding:13px 16px;background:none;border:1.5px solid var(--border);border-radius:13px;font-size:16px;cursor:pointer;color:var(--muted);}
+      .pcard-del-btn{padding:13px 16px;background:rgba(239,68,68,.08);border:1.5px solid rgba(239,68,68,.2);border-radius:13px;font-size:16px;cursor:pointer;color:#ef4444;}
+
       /* TOAST */
       .toast{position:fixed;bottom:72px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--accent);color:#000;font-family:'Unbounded',sans-serif;font-size:10px;font-weight:700;padding:9px 19px;border-radius:28px;z-index:400;opacity:0;transition:all .3s;pointer-events:none;white-space:nowrap;}
       .toast.on{opacity:1;transform:translateX(-50%) translateY(0);}
@@ -644,6 +672,28 @@
         <div class="cart-body" id="cartBody"></div>
         <div class="cart-footer">
           <button class="cart-open-btn" onclick="openAllInSilpo()">Відкрити всі в Сільпо ↗</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- PRODUCT CARD MODAL -->
+    <div class="pcard-modal" id="pcardModal" onclick="closePCard()">
+      <div class="pcard-sheet" onclick="event.stopPropagation()">
+        <div class="pcard-drag"></div>
+        <div class="pcard-img-wrap" id="pcardImgWrap"></div>
+        <div class="pcard-body">
+          <div class="pcard-alias" id="pcardAlias"></div>
+          <div class="pcard-stitle" id="pcardStitle"></div>
+          <div class="pcard-per100">На 100г продукту:</div>
+          <div class="pcard-nutr">
+            <div class="pcard-n"><span class="pcard-nv" id="pcardKcal">—</span><span class="pcard-nl">Калорії</span></div>
+            <div class="pcard-n"><span class="pcard-nv" id="pcardProt">—</span><span class="pcard-nl">Білок г</span></div>
+            <div class="pcard-n"><span class="pcard-nv" id="pcardFat">—</span><span class="pcard-nl">Жири г</span></div>
+            <div class="pcard-n"><span class="pcard-nv" id="pcardCarb">—</span><span class="pcard-nl">Вуглев г</span></div>
+          </div>
+          <div class="pcard-price" id="pcardPrice"></div>
+          <div class="pcard-src" id="pcardSrc"></div>
+          <div class="pcard-actions" id="pcardActions"></div>
         </div>
       </div>
     </div>
@@ -1998,7 +2048,7 @@
           item.carbs_per_100 = nutr.carbs;
           // Save to directory with alias + Silpo origin
           const key = foodKey(alias);
-          FOODS[key] = { name: alias, silpoTitle: p.title, silpoSlug: p.slug, source: 'silpo', ...nutr };
+          FOODS[key] = { name: alias, silpoTitle: p.title, silpoSlug: p.slug, silpoIcon: p.icon || null, source: 'silpo', ...nutr };
           if (db) set(ref(db, "racion/foods/" + key), FOODS[key]).catch(() => {});
         }
         closeMSearch();
@@ -2030,6 +2080,9 @@
             protein: val.protein || 0,
             fat: val.fat || 0,
             carbs: val.carbs || 0,
+            silpoTitle: val.silpoTitle || null,
+            silpoSlug: val.silpoSlug || null,
+            source: val.source || null,
           }))
           .filter(e => !filter || e.name.toLowerCase().includes(filter))
           .sort((a, b) => a.name.localeCompare(b.name, 'uk'));
@@ -2043,7 +2096,7 @@
           const showSilpoTitle = e.silpoTitle && e.silpoTitle !== e.name;
           const linkHtml = e.silpoSlug
             ? (e.source === 'silpo'
-                ? `<a class="dir-link-a" href="https://silpo.ua/product/${e.silpoSlug}" target="_blank">↗ Сільпо</a>`
+                ? `<a class="dir-link-a" href="https://silpo.ua/product/${e.silpoSlug}" target="_blank" onclick="event.stopPropagation()">↗ Сільпо</a>`
                 : `<span class="dir-link-off" title="Дані відредаговано вручну">✎ ред.</span>`)
             : '';
           const isSel = _dirSelected.has(e.key);
@@ -2051,10 +2104,11 @@
             ? `<input type="checkbox" class="dir-row-cb" data-key="${e.key}" ${isSel ? 'checked' : ''} onchange="toggleDirItem('${e.key}')">`
             : '';
           const actionsHtml = _dirSelectMode ? '' : `<div class="dir-actions">
-              <button class="dir-btn" onclick="startEditFood('${e.key}')">✏️</button>
-              <button class="dir-btn" onclick="deleteFoodItem('${e.key}')">🗑️</button>
+              <button class="dir-btn" onclick="event.stopPropagation();startEditFood('${e.key}')">✏️</button>
+              <button class="dir-btn" onclick="event.stopPropagation();deleteFoodItem('${e.key}')">🗑️</button>
             </div>`;
-          return `<div class="dir-row${isSel ? ' sel' : ''}" onclick="${_dirSelectMode ? `toggleDirItem('${e.key}')` : ''}">
+          const rowClick = _dirSelectMode ? `toggleDirItem('${e.key}')` : `openPCard('${e.key}')`;
+          return `<div class="dir-row${isSel ? ' sel' : ''}" style="${!_dirSelectMode ? 'cursor:pointer' : ''}" onclick="${rowClick}">
             ${cbHtml}
             <div class="dir-names">
               <div class="dir-alias">${e.name}</div>
@@ -2167,12 +2221,61 @@
       };
 
       window.openDirItem = function(key) {
-        showScreen('search');
-        showFdTab('dir');
-        const name = FOODS[key]?.name || '';
-        const filterEl = document.getElementById('dirFilter');
-        if (filterEl) filterEl.value = name;
-        renderFoodsDir();
+        // Open product card directly
+        openPCard(key);
+      };
+
+      // ─── PRODUCT CARD ────────────────────────────────────────────────────────
+      let _pcardKey = null;
+
+      window.openPCard = function(key) {
+        const food = FOODS[key];
+        if (!food) return;
+        _pcardKey = key;
+
+        // Image
+        const imgWrap = document.getElementById('pcardImgWrap');
+        if (food.silpoIcon) {
+          imgWrap.innerHTML = `<img class="pcard-img" src="${food.silpoIcon}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" alt=""><div class="pcard-img-none" style="display:none">🛒</div>`;
+        } else {
+          imgWrap.innerHTML = `<div class="pcard-img-none">🛒</div>`;
+        }
+
+        const alias = food.name || key.replace(/_/g,' ');
+        document.getElementById('pcardAlias').textContent = alias;
+        const stitle = (food.silpoTitle && food.silpoTitle !== food.name) ? food.silpoTitle : '';
+        document.getElementById('pcardStitle').textContent = stitle;
+        document.getElementById('pcardStitle').style.display = stitle ? '' : 'none';
+        document.getElementById('pcardKcal').textContent = food.kcal != null ? Math.round(food.kcal) : '—';
+        document.getElementById('pcardProt').textContent = food.protein != null ? +(food.protein).toFixed(1) : '—';
+        document.getElementById('pcardFat').textContent  = food.fat     != null ? +(food.fat).toFixed(1)     : '—';
+        document.getElementById('pcardCarb').textContent = food.carbs   != null ? +(food.carbs).toFixed(1)   : '—';
+
+        const priceEl = document.getElementById('pcardPrice');
+        priceEl.textContent = food.silpoPrice ? `${food.silpoPrice} грн/${food.silpoPriceRatio || 'шт'}` : '';
+
+        const srcEl = document.getElementById('pcardSrc');
+        if (food.silpoSlug) {
+          const srcLabel = food.source === 'silpo' ? 'Дані з Сільпо' : 'Відредаговано вручну (Сільпо)';
+          srcEl.innerHTML = `${srcLabel} · <a href="https://silpo.ua/product/${food.silpoSlug}" target="_blank" onclick="event.stopPropagation()">Відкрити ↗</a>`;
+        } else {
+          srcEl.textContent = 'Додано вручну';
+        }
+
+        const actEl = document.getElementById('pcardActions');
+        const openBtn = (food.silpoSlug && food.source === 'silpo')
+          ? `<a class="pcard-open-a" href="https://silpo.ua/product/${food.silpoSlug}" target="_blank" onclick="event.stopPropagation()">Відкрити в Сільпо ↗</a>`
+          : `<div style="flex:1"></div>`;
+        actEl.innerHTML = `${openBtn}
+          <button class="pcard-edit-btn" onclick="closePCard();showScreen('search');showFdTab('dir');startEditFood('${key}')">✏️</button>
+          <button class="pcard-del-btn" onclick="if(confirm('Видалити?')){deleteFoodItem('${key}');closePCard();}">🗑</button>`;
+
+        document.getElementById('pcardModal').classList.add('on');
+      };
+
+      window.closePCard = function() {
+        document.getElementById('pcardModal').classList.remove('on');
+        _pcardKey = null;
       };
 
       function getItemSourceLink(it) {
@@ -2346,7 +2449,7 @@
             if (nutr) {
               const entry = { ...nutr, silpoId: best.id, silpoSlug: best.slug, silpoTitle: best.title, silpoPrice: best.displayPrice, silpoPriceRatio: best.displayRatio };
               resolved[name] = entry;
-              FOODS[cKey] = { name, silpoTitle: best.title, silpoSlug: best.slug, source: 'silpo', ...nutr };
+              FOODS[cKey] = { name, silpoTitle: best.title, silpoSlug: best.slug, silpoIcon: best.icon || null, source: 'silpo', ...nutr };
               if (db) set(ref(db, 'racion/foods/' + cKey), FOODS[cKey]).catch(() => {});
             }
           } catch(e) {}
