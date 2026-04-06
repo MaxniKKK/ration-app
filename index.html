@@ -2336,6 +2336,9 @@
           const detail = await r.json();
           nutr = parseSilpoNutr(detail.attributeGroups);
         } catch(e) {}
+        // If any nutrient is missing in the new Silpo product → reset all to 0.
+        // Link stays bound regardless (user explicitly chose this product).
+        const hasFullNutr = nutr && nutr.kcal != null && nutr.protein != null && nutr.fat != null && nutr.carbs != null;
         const old = FOODS[key] || {};
         FOODS[key] = {
           name: old.name || p.title,
@@ -2345,10 +2348,10 @@
           silpoPrice: p.displayPrice ?? null,
           silpoPriceRatio: p.displayRatio ?? null,
           source: 'silpo',
-          kcal:    nutr?.kcal    ?? old.kcal    ?? 0,
-          protein: nutr?.protein ?? old.protein ?? 0,
-          fat:     nutr?.fat     ?? old.fat     ?? 0,
-          carbs:   nutr?.carbs   ?? old.carbs   ?? 0,
+          kcal:    hasFullNutr ? nutr.kcal    : 0,
+          protein: hasFullNutr ? nutr.protein : 0,
+          fat:     hasFullNutr ? nutr.fat     : 0,
+          carbs:   hasFullNutr ? nutr.carbs   : 0,
         };
         if (db) set(ref(db, 'racion/foods/' + key), FOODS[key]).catch(() => {});
         _remapKey = null;
@@ -2447,13 +2450,10 @@
           delete FOODS[originalKey];
           if (db) set(ref(db, 'racion/foods/' + originalKey), null).catch(() => {});
         }
-        const prev = FOODS[originalKey] || {};
+        // Manual edit fully detaches Silpo binding — link becomes inactive
         FOODS[newKey] = {
           name, kcal, protein, fat, carbs,
           source: 'manual',
-          // keep Silpo references for display, but source='manual' deactivates link
-          ...(prev.silpoTitle ? { silpoTitle: prev.silpoTitle } : {}),
-          ...(prev.silpoSlug  ? { silpoSlug:  prev.silpoSlug  } : {}),
         };
         if (db) set(ref(db, 'racion/foods/' + newKey), FOODS[newKey]).catch(() => {});
         _editingFoodKey = null;
