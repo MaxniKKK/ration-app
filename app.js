@@ -1262,6 +1262,10 @@ window.openDirItem = function(key) {
 
 // ─── PRODUCT CARD ────────────────────────────────────────────────────────
 let _pcardKey = null;
+// Recipe ingredient edit-mode state — only valid for the current pcard
+let _pcardEditingIngs = false;
+let _pcardIngsDraft = null;
+let _pcardIngsEditKey = null;
 
 window.openPCard = function(key) {
   const food = FOODS[key];
@@ -1298,12 +1302,37 @@ window.openPCard = function(key) {
     srcEl.textContent = 'Додано вручну';
   }
 
+  // Reset ingredient-edit state when switching recipes
+  if (_pcardEditingIngs && _pcardKey !== _pcardIngsEditKey) {
+    _pcardEditingIngs = false;
+    _pcardIngsDraft = null;
+    _pcardIngsEditKey = null;
+  }
   // Recipe ingredients section — only for type='recipe'. Shows each raw
   // ingredient string with its resolved status (linked / staple / missing).
   // Linked rows are clickable → opens that product's card. Computes a
   // fresh link list on demand if linkedIngredients was never persisted.
   const ingsEl = document.getElementById('pcardIngsSection');
-  if (food.type === 'recipe' && Array.isArray(food.ingredients) && food.ingredients.length) {
+  if (food.type === 'recipe' && _pcardEditingIngs && Array.isArray(_pcardIngsDraft)) {
+    // ── EDIT MODE ──
+    ingsEl.innerHTML = `
+      <div class="pcard-ings-label">
+        Інгредієнти (редагування)
+        <button class="pcard-ings-edit-btn" onclick="event.stopPropagation();toggleRecipeIngsEdit('${key}')">Скасувати</button>
+      </div>
+      <ul class="pcard-ings-list">
+        ${_pcardIngsDraft.map((raw, idx) => `
+          <li>
+            <input class="pcard-ing-edit-inp" value="${escapeHtml(raw).replace(/"/g,'&quot;')}" placeholder="Назва і кількість" data-idx="${idx}">
+            <button class="pcard-ing-del-btn" onclick="event.stopPropagation();removeRecipeIng(${idx})">✕</button>
+          </li>
+        `).join('')}
+      </ul>
+      <button class="pcard-add-ing-btn" onclick="event.stopPropagation();addRecipeIng()">+ Додати інгредієнт</button>
+      <button class="pcard-save-ings-btn" onclick="event.stopPropagation();saveRecipeIngs('${key}')">☁️ Зберегти</button>
+    `;
+    ingsEl.style.display = '';
+  } else if (food.type === 'recipe' && Array.isArray(food.ingredients) && food.ingredients.length) {
     let linked = food.linkedIngredients;
     if (!Array.isArray(linked)) {
       // Lazy compute on first card open after a fresh load
@@ -1318,7 +1347,10 @@ window.openPCard = function(key) {
     const optionalCount = linked.filter(l => l.kind === 'optional').length;
     const stapleCount   = linked.filter(l => l.kind === 'staple').length;
     ingsEl.innerHTML = `
-      <div class="pcard-ings-label">Інгредієнти${food.servings ? ` · на ${food.servings} порц.` : ''}</div>
+      <div class="pcard-ings-label">
+        Інгредієнти${food.servings ? ` · на ${food.servings} порц.` : ''}
+        <button class="pcard-ings-edit-btn" onclick="event.stopPropagation();toggleRecipeIngsEdit('${key}')">✏️ Редагувати</button>
+      </div>
       <ul class="pcard-ings-list">
         ${linked.map((l, idx) => {
           if (l.kind === 'linked') {
@@ -1453,6 +1485,77 @@ window.applyManualLink = function(idx) {
   setTimeout(() => openPCard(ctx.recipeKey), 150);
 };
 
+// Helper: snapshot the current edit-mode input values back into the draft
+// so add/remove operations don't lose user typing
+function _snapshotIngsDraft() {
+  const inputs = document.querySelectorAll('.pcard-ing-edit-inp');
+  if (!inputs.length) return;
+  const current = [];
+  inputs.forEach(inp => current.push(inp.value));
+  _pcardIngsDraft = current;
+}
+
+window.toggleRecipeIngsEdit = function(key) {
+  if (_pcardEditingIngs && _pcardIngsEditKey === key) {
+    // Cancel — discard draft
+    _pcardEditingIngs = false;
+    _pcardIngsDraft = null;
+    _pcardIngsEditKey = null;
+  } else {
+    const food = FOODS[key];
+    if (!food) return;
+    _pcardEditingIngs = true;
+    _pcardIngsEditKey = key;
+    _pcardIngsDraft = [...(food.ingredients || [])];
+  }
+  openPCard(key);
+};
+
+window.addRecipeIng = function() {
+  if (!_pcardEditingIngs) return;
+  _snapshotIngsDraft();
+  _pcardIngsDraft = [...(_pcardIngsDraft || []), ''];
+  if (_pcardKey) openPCard(_pcardKey);
+  // Focus the new input on next frame
+  setTimeout(() => {
+    const inputs = document.querySelectorAll('.pcard-ing-edit-inp');
+    inputs[inputs.length - 1]?.focus();
+  }, 50);
+};
+
+window.removeRecipeIng = function(idx) {
+  if (!_pcardEditingIngs) return;
+  _snapshotIngsDraft();
+  _pcardIngsDraft = (_pcardIngsDraft || []).filter((_, i) => i !== idx);
+  if (_pcardKey) openPCard(_pcardKey);
+};
+
+window.saveRecipeIngs = function(key) {
+  if (!_pcardEditingIngs) return;
+  _snapshotIngsDraft();
+  const food = FOODS[key];
+  if (!food) return;
+  // Drop empty rows
+  const newIngs = (_pcardIngsDraft || []).map(s => String(s).trim()).filter(Boolean);
+  food.ingredients = newIngs;
+  // Recompute coverage against current product directory
+  const products = Object.entries(FOODS)
+    .filter(([k, f]) => f && f.type !== 'recipe' && f.name)
+    .map(([k, f]) => ({ key: k, name: f.name }));
+  const cov = analyzeRecipeCoverage(food, products);
+  food.linkedIngredients = cov.linked;
+  food.whitelisted = cov.ratio >= RECIPE_WHITELIST_THRESHOLD;
+  // Persist
+  if (db) {
+    set(ref(db, 'racion/foods/' + key), food).catch(() => {});
+  }
+  _pcardEditingIngs = false;
+  _pcardIngsDraft = null;
+  _pcardIngsEditKey = null;
+  showToast('Збережено ✓');
+  openPCard(key);
+};
+
 window.togglePCardTag = function(key, tag) {
   const food = FOODS[key];
   if (!food) return;
@@ -1468,6 +1571,9 @@ window.togglePCardTag = function(key, tag) {
 window.closePCard = function() {
   document.getElementById('pcardModal').classList.remove('on');
   _pcardKey = null;
+  _pcardEditingIngs = false;
+  _pcardIngsDraft = null;
+  _pcardIngsEditKey = null;
 };
 
 window.confirmDeletePCardFood = function(key) {

@@ -407,6 +407,13 @@ body{background:var(--bg);color:var(--text);font-family:'Golos Text',sans-serif;
 .pcard-ing-icon.optional{color:#fbbf24;}
 .pcard-ing-link-btn{font-size:9px;padding:2px 6px;background:var(--card2);border:1px solid var(--border);border-radius:6px;color:var(--blue);cursor:pointer;flex-shrink:0;font-family:'Unbounded',sans-serif;}
 .pcard-ing-link-btn:active{background:var(--card);}
+.pcard-ings-edit-btn{float:right;font-size:9px;padding:3px 8px;background:var(--card2);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-family:'Unbounded',sans-serif;font-weight:700;text-transform:none;letter-spacing:0;}
+.pcard-ings-edit-btn:active{background:var(--card);}
+.pcard-ing-edit-inp{flex:1;background:#0d0d0d;border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:var(--text);font-family:'Golos Text',sans-serif;font-size:12px;outline:none;min-width:0;}
+.pcard-ing-edit-inp:focus{border-color:var(--accent);}
+.pcard-ing-del-btn{background:rgba(239,68,68,.1);border:none;border-radius:6px;color:#ef4444;font-size:13px;width:26px;height:26px;cursor:pointer;flex-shrink:0;}
+.pcard-add-ing-btn{width:100%;background:rgba(200,245,74,.06);border:1px dashed rgba(200,245,74,.25);border-radius:8px;color:var(--accent);padding:8px;font-family:'Golos Text',sans-serif;font-size:11px;cursor:pointer;margin-top:8px;}
+.pcard-save-ings-btn{width:100%;background:var(--accent);border:none;border-radius:10px;padding:11px;font-family:'Unbounded',sans-serif;font-size:11px;font-weight:700;color:#000;cursor:pointer;margin-top:8px;}
 
 /* ── RECIPE WRAPPER inside meal card ── */
 .meal-recipe-hdr{display:flex;align-items:center;gap:6px;padding:8px 13px;background:rgba(255,107,53,.06);border-bottom:1px solid var(--border);cursor:pointer;font-size:11px;}
