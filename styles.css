@@ -404,6 +404,15 @@ body{background:var(--bg);color:var(--text);font-family:'Golos Text',sans-serif;
 .pcard-ing-icon.linked{color:#4ade80;}
 .pcard-ing-icon.missing{color:#f87171;}
 .pcard-ing-icon.staple{color:var(--muted);}
+.pcard-ing-icon.optional{color:#fbbf24;}
+.pcard-ing-link-btn{font-size:9px;padding:2px 6px;background:var(--card2);border:1px solid var(--border);border-radius:6px;color:var(--blue);cursor:pointer;flex-shrink:0;font-family:'Unbounded',sans-serif;}
+.pcard-ing-link-btn:active{background:var(--card);}
+
+/* ── RECIPE WRAPPER inside meal card ── */
+.meal-recipe-hdr{display:flex;align-items:center;gap:6px;padding:8px 13px;background:rgba(255,107,53,.06);border-bottom:1px solid var(--border);cursor:pointer;font-size:11px;}
+.meal-recipe-hdr:active{background:rgba(255,107,53,.12);}
+.meal-recipe-name{flex:1;font-family:'Unbounded',sans-serif;font-size:10px;font-weight:700;color:var(--accent2);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.meal-recipe-arr{font-size:10px;color:var(--muted);}
 .pcard-ing-raw{flex:1;color:#ccc;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .pcard-ing-link{color:var(--blue);cursor:pointer;text-decoration:none;font-size:11px;flex-shrink:0;max-width:50%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .pcard-ing-link:active{opacity:.6;}

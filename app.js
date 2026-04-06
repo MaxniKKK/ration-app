@@ -825,7 +825,15 @@ function renderMeals() {
         const srcLink = getItemSourceLink(it);
         return `<li>${it.n || ""}${it.g ? `<span class="vgr">${it.g}</span>` : ""}${iKcal != null ? `<span class="item-kcal">${iKcal}кк</span>` : ""}${srcLink}</li>`;
       }).join("");
-      body = `<div class="mbody"><ul class="vitems">${lis}</ul></div>`;
+      // If this slot was generated from a recipe, show a clickable recipe
+      // header before the ingredient list (so the user knows what dish it is)
+      const recipeHdr = meal.recipeKey && meal.recipeName
+        ? `<div class="meal-recipe-hdr" onclick="event.stopPropagation();openPCard('${meal.recipeKey}')">
+             🍳 <span class="meal-recipe-name">${escapeHtml(meal.recipeName)}</span>
+             <span class="meal-recipe-arr">↗</span>
+           </div>`
+        : '';
+      body = `<div class="mbody">${recipeHdr}<ul class="vitems">${lis}</ul></div>`;
     }
     const calc = calcMealNutr(meal);
     const displayKcal = calc != null ? calc.kcal : (meal.kcal || 0);
@@ -1304,33 +1312,43 @@ window.openPCard = function(key) {
         .map(([k, f]) => ({ key: k, name: f.name }));
       linked = analyzeRecipeCoverage(food, products).linked;
     }
-    const matchedCount = linked.filter(l => l.kind === 'linked').length;
-    const missingCount = linked.filter(l => l.kind === 'missing').length;
-    const stapleCount  = linked.filter(l => l.kind === 'staple').length;
+    const matchedCount  = linked.filter(l => l.kind === 'linked' && !l.optional).length;
+    const optionalLinked = linked.filter(l => l.kind === 'linked' && l.optional).length;
+    const missingCount  = linked.filter(l => l.kind === 'missing').length;
+    const optionalCount = linked.filter(l => l.kind === 'optional').length;
+    const stapleCount   = linked.filter(l => l.kind === 'staple').length;
     ingsEl.innerHTML = `
       <div class="pcard-ings-label">Інгредієнти${food.servings ? ` · на ${food.servings} порц.` : ''}</div>
       <ul class="pcard-ings-list">
-        ${linked.map(l => {
+        ${linked.map((l, idx) => {
           if (l.kind === 'linked') {
             return `<li>
-              <span class="pcard-ing-icon linked" title="Привʼязано до продукту">●</span>
+              <span class="pcard-ing-icon linked" title="${l.optional ? 'Опціональний інгредієнт, привʼязаний' : 'Привʼязано до продукту'}">●</span>
               <span class="pcard-ing-raw">${escapeHtml(l.raw)}</span>
               <a class="pcard-ing-link" onclick="event.stopPropagation();openPCard('${l.productKey}')">→ ${escapeHtml(l.productName || '')}</a>
             </li>`;
           }
           if (l.kind === 'staple') {
             return `<li>
-              <span class="pcard-ing-icon staple" title="Базовий продукт (завжди є)">○</span>
+              <span class="pcard-ing-icon staple" title="Базовий продукт (вода / сіль / цукор)">○</span>
               <span class="pcard-ing-raw" style="color:var(--muted)">${escapeHtml(l.raw)}</span>
+            </li>`;
+          }
+          if (l.kind === 'optional') {
+            return `<li>
+              <span class="pcard-ing-icon optional" title="Опціональний інгредієнт (спеція, олія, тощо). Не блокує whitelist, але можна привʼязати">◐</span>
+              <span class="pcard-ing-raw">${escapeHtml(l.raw)}</span>
+              <button class="pcard-ing-link-btn" onclick="event.stopPropagation();openManualLinkIngredient('${key}',${idx})">+ привʼязати</button>
             </li>`;
           }
           return `<li>
             <span class="pcard-ing-icon missing" title="Немає в довіднику продуктів">✕</span>
             <span class="pcard-ing-raw">${escapeHtml(l.raw)}</span>
+            <button class="pcard-ing-link-btn" onclick="event.stopPropagation();openManualLinkIngredient('${key}',${idx})">+ привʼязати</button>
           </li>`;
         }).join('')}
       </ul>
-      <div class="pcard-ing-meta">${matchedCount} в довіднику · ${missingCount} відсутні · ${stapleCount} базові${food.sourceUrl ? ` · <a href="${food.sourceUrl}" target="_blank" onclick="event.stopPropagation()" style="color:var(--blue);text-decoration:none">↗ klopotenko</a>` : ''}</div>
+      <div class="pcard-ing-meta">${matchedCount} в довіднику · ${optionalLinked + optionalCount} опціональних · ${missingCount} відсутні · ${stapleCount} базові${food.sourceUrl ? ` · <a href="${food.sourceUrl}" target="_blank" onclick="event.stopPropagation()" style="color:var(--blue);text-decoration:none">↗ klopotenko</a>` : ''}</div>
     `;
     ingsEl.style.display = '';
   } else {
@@ -1363,6 +1381,76 @@ window.openPCard = function(key) {
     <button class="pcard-del-btn" title="Видалити" onclick="confirmDeletePCardFood('${key}')">🗑</button>`;
 
   document.getElementById('pcardModal').classList.add('on');
+};
+
+// Manually link a recipe ingredient to a product from the directory.
+// Opens a search modal listing all non-recipe FOODS entries; on pick,
+// updates recipe.linkedIngredients[idx] and persists to Firebase.
+window.openManualLinkIngredient = function(recipeKey, ingIdx) {
+  const recipe = FOODS[recipeKey];
+  if (!recipe || !Array.isArray(recipe.linkedIngredients)) return;
+  const ing = recipe.linkedIngredients[ingIdx];
+  if (!ing) return;
+
+  // Build a list of available products
+  const products = Object.entries(FOODS)
+    .filter(([k, f]) => f && f.type !== 'recipe' && f.name)
+    .map(([k, f]) => ({ key: k, name: f.name }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'uk'));
+
+  if (!products.length) {
+    showConfirm({
+      icon: '⚠️',
+      title: 'Немає продуктів',
+      text: 'Спочатку додай продукти у вкладку Продукти.',
+      actions: [{ label: 'Зрозуміло', style: 'primary' }],
+    });
+    return;
+  }
+
+  // Reuse the existing msearch modal with a new context
+  _remapKey = '__linkIng__';
+  _msCtx = { recipeKey, ingIdx };
+  _msFoods = products.map(p => ({ title: p.name, slug: p.key, _localProduct: true }));
+  document.getElementById('msInp').value = parseIngredientName(ing.raw) || ing.raw;
+  document.getElementById('pcardModal').classList.remove('on');
+  // Render product list directly (skip API call)
+  document.getElementById('msRes').innerHTML = `<div style="text-align:center;padding:8px;color:var(--muted);font-size:11px">Вибери продукт з довідника:</div>` +
+    products.map((p, i) => `<div class="msd-item" onclick="applyManualLink(${i})">
+      <div class="msd-iname">${escapeHtml(p.name)}</div>
+    </div>`).join('');
+  document.getElementById('msearch').classList.add('on');
+};
+
+window.applyManualLink = function(idx) {
+  const ctx = _msCtx;
+  if (!ctx || !ctx.recipeKey) return;
+  const product = _msFoods[idx];
+  const recipe = FOODS[ctx.recipeKey];
+  if (!recipe || !product) return;
+  const ing = recipe.linkedIngredients[ctx.ingIdx];
+  if (!ing) return;
+
+  const productKey  = product.slug;        // we stored the FOODS key in slug
+  const productName = product.title;
+  // Update in-memory + persist
+  recipe.linkedIngredients[ctx.ingIdx] = {
+    raw: ing.raw,
+    kind: 'linked',
+    productKey,
+    productName,
+    optional: ing.kind === 'optional',
+    manual: true,
+  };
+  if (db) {
+    set(ref(db, 'racion/foods/' + ctx.recipeKey + '/linkedIngredients'), recipe.linkedIngredients).catch(() => {});
+  }
+
+  _remapKey = null;
+  _msCtx = null;
+  closeMSearch();
+  showToast('Привʼязано ✓');
+  setTimeout(() => openPCard(ctx.recipeKey), 150);
 };
 
 window.togglePCardTag = function(key, tag) {
@@ -1733,22 +1821,24 @@ window.applyNewFoodSilpo = async function(idx) {
 window.confirmAutoFill = function() {
   const hasKey = !!getAIKey();
   const provLabel = AI_PROVIDERS[getAIProvider()].label;
-  const dirCount = Object.values(FOODS).filter(f => f && (f.kcal || 0) > 0).length;
+  const recipeCount = Object.values(FOODS).filter(f => f?.type === 'recipe' && f.whitelisted).length;
+  const productCount = Object.values(FOODS).filter(f => f && f.type !== 'recipe' && (f.kcal || 0) > 0).length;
+  const strictAvailable = recipeCount > 0;
   showConfirm({
     icon: '🤖',
     title: 'Автоплан раціону',
-    text: hasKey
-      ? `${provLabel} згенерує тиждень з твого профіля. У довіднику зараз ${dirCount} продуктів.`
-      : `Ще не налаштовано AI. Зайди в Профіль і додай ключ для ${provLabel}, або синхронізуй довідник без генерації.`,
+    text: `Whitelist: ${recipeCount} рецептів · ${productCount} продуктів у довіднику.${hasKey ? '' : ' AI ключ не налаштовано — доступний лише локальний режим з довідника.'}`,
     actions: [
       hasKey && {
-        label: '✨ Згенерувати (вільний режим)',
+        label: '✨ Згенерувати через AI',
         style: 'primary',
         onClick: () => autoFillWeek('free'),
       },
-      hasKey && dirCount > 0 && {
-        label: '📚 Згенерувати лише з довідника',
-        style: 'secondary',
+      // Strict mode (local generator from whitelist) is ALWAYS available
+      // when there are whitelisted recipes — no AI key needed.
+      strictAvailable && {
+        label: '📚 Згенерувати з довідника рецептів',
+        style: hasKey ? 'secondary' : 'primary',
         onClick: () => autoFillWeek('strict'),
       },
       {
@@ -3251,29 +3341,38 @@ ${ingList}
 }
 
 // ── RECIPE INGREDIENT COVERAGE ──────────────────────────────────────────
-// Pantry staples — stem-form set. Includes ALL common stem variants
-// (Ukrainian has stem-changing inflections so 'сіль' → 'сіл' but 'солі' → 'сол';
-// both must be listed). These never count as missing or reduce the ratio.
-const PANTRY_STAPLE_STEMS = new Set([
-  // SALT — сіль/солі/сіллю/посолити
-  'сол', 'сіл', 'сол', 'посол',
-  // PEPPER — перець/перцю/перчений/перчик
-  'перц', 'перец', 'перч', 'перчик',
-  // WATER — вода/води/водою
+// TRUE pantry staples — water, salt, sugar (and direct forms). These are
+// completely ignored: not linked, not counted, not missing. Just the bare
+// essentials everyone always has.
+// Match is EXACT against the stem set (no prefix tricks → 'курк' (chicken)
+// can't accidentally hit 'куркум' (turmeric)).
+const TRUE_STAPLE_STEMS = new Set([
+  // SALT — сіль/солі/сіллю/посоли
+  'сол', 'сіл', 'посол', 'присол',
+  // WATER — вода/води/льоду
   'вод', 'льод',
-  // SUGAR — цукор/цукру/цукровий
+  // SUGAR — цукор/цукру
   'цук', 'цукор', 'цукр',
-  // VANILLA
-  'ванілі', 'ваніль', 'ваніл', 'ванільн',
-  // OIL — олія/олій/оливкова
-  'олі', 'олій', 'олиї', 'оливк',
+]);
+
+// OPTIONAL ingredients — spices, oils, vinegar, herbs, etc. The user said
+// these SHOULD be linked to products if available, but should NOT block a
+// recipe from passing the whitelist threshold (they're "nice to have").
+// EXACT match against this stem set.
+const OPTIONAL_INGREDIENT_STEMS = new Set([
+  // PEPPER — перець/перцю/перчений
+  'перц', 'перец', 'перч', 'перчик',
+  // OIL — олія/олій
+  'олі', 'олій', 'олиї',
   // VINEGAR — оцет/оцту
   'оце', 'оцт', 'оцет',
-  // Common dried spices / herbs
+  // VANILLA
+  'ванілі', 'ваніль', 'ваніл',
+  // Dried spices
   'лавр', 'кмин', 'паприк', 'кориц', 'мускат', 'гвоздик', 'кардамон',
   'імбир', 'куркум', 'базилік', 'орегано', 'чебрец', 'тимʼ', 'тим', 'розмарин',
   'мят', 'мʼят', 'кінз', 'фенхель', 'чилі', 'кайєн', 'каррі', 'хмел',
-  // Fresh herbs everyone has
+  // Fresh herbs
   'петрушк', 'кріп', 'кроп', 'зелен',
   // Baking basics
   'сод', 'розпуш', 'дріжж',
@@ -3281,35 +3380,52 @@ const PANTRY_STAPLE_STEMS = new Set([
   'часник', 'часн', 'часнк', 'зубчик', 'зубч', 'зубк',
 ]);
 
-function isPantryStaple(parsedName) {
-  if (!parsedName) return false;
-  const allStems = stemsOf(parsedName);
-  if (!allStems.size) return true;
-  // Drop modifier-adjective stems via prefix match (so 'червони' filters
-  // even though MODS only has 'червон')
-  const isModifier = s => {
+// Strip adjective-modifier stems from a stem set so 'лавровий лист' becomes
+// just [lst] and 'червоний перець' becomes just [перец]. Modifiers use a
+// loose prefix-match because Ukrainian adjectives have many inflections.
+function _stripModifiers(allStems) {
+  return [...allStems].filter(s => {
     for (const mod of STAPLE_MODIFIER_STEMS) {
-      if (s === mod) return true;
-      if (mod.length >= 4 && (s.startsWith(mod) || mod.startsWith(s))) return true;
+      if (s === mod) return false;
+      if (mod.length >= 4 && (s.startsWith(mod) || mod.startsWith(s))) return false;
     }
-    return false;
-  };
-  const significant = [...allStems].filter(s => !isModifier(s));
+    return true;
+  });
+}
+
+// EXACT-match check against a stem set (no prefix tricks). Only TRUE if EVERY
+// remaining significant stem is in the set — handles 'сіль і перець' but not
+// 'сіль на курці' (which has 'курк' as a real ingredient).
+function _stemsAllIn(parsedName, stemSet) {
+  if (!parsedName) return false;
+  const all = stemsOf(parsedName);
+  if (!all.size) return true;
+  const significant = _stripModifiers(all);
   if (!significant.length) return true;
   for (const s of significant) {
-    let isStaple = false;
-    if (PANTRY_STAPLE_STEMS.has(s)) isStaple = true;
-    else {
-      for (const staple of PANTRY_STAPLE_STEMS) {
-        if (staple.length >= 3 && (s.startsWith(staple) || staple.startsWith(s))) {
-          isStaple = true;
-          break;
-        }
-      }
-    }
-    if (!isStaple) return false;
+    if (!stemSet.has(s)) return false;
   }
   return true;
+}
+
+function isTrueStaple(parsedName)        { return _stemsAllIn(parsedName, TRUE_STAPLE_STEMS); }
+function isOptionalIngredient(parsedName) {
+  // Optional includes everything in OPTIONAL_INGREDIENT_STEMS — but NOT
+  // true staples (they're handled separately). Use exact-match too.
+  if (!parsedName) return false;
+  const all = stemsOf(parsedName);
+  if (!all.size) return false;
+  const significant = _stripModifiers(all);
+  if (!significant.length) return false;
+  for (const s of significant) {
+    if (!OPTIONAL_INGREDIENT_STEMS.has(s)) return false;
+  }
+  return true;
+}
+
+// Backwards-compat shim used by older callers (top-missing aggregation).
+function isPantryStaple(parsedName) {
+  return isTrueStaple(parsedName) || isOptionalIngredient(parsedName);
 }
 
 // Parse a raw klopotenko ingredient string ("500 г свинини", "2 ст. л. олії",
@@ -3377,6 +3493,8 @@ const STEM_ALIASES = {
   'яєц': 'яйц', 'яєчк': 'яйц', 'яєчн': 'яйц',
   'мяс': 'мяс', 'мʼяс': 'мяс',
   'моркв': 'морк', 'морков': 'морк',
+  // Chicken: 'курка' → 'курк' should match 'куряче' → 'куряч'
+  'курк': 'куряч', 'кур': 'куряч', 'курят': 'куряч', 'курин': 'куряч',
 };
 
 // Cyrillic word stem — strip common inflection suffixes and normalize.
@@ -3459,20 +3577,33 @@ function ingredientMatchesProduct(ingredientText, productName) {
 function analyzeRecipeCoverage(recipe, productEntries) {
   const ings = recipe.ingredients || [];
   if (!ings.length) return { matched: 0, total: 0, ratio: 0, missing: [], skipped: 0, linked: [] };
-  let matched = 0, skipped = 0;
+  let matched = 0, total = 0;
   const missing = [];
   const linked = [];
   for (const ing of ings) {
     const parsed = parseIngredientName(ing);
-    if (isPantryStaple(parsed)) {
-      skipped++;
+    // 1. True staple (water/salt/sugar) — fully ignored
+    if (isTrueStaple(parsed)) {
       linked.push({ raw: ing, kind: 'staple' });
       continue;
     }
+    // 2. Try to link to a real product (works for both required and optional)
     let foundProd = null;
     for (const prod of productEntries) {
       if (ingredientMatchesProduct(ing, prod.name)) { foundProd = prod; break; }
     }
+    // 3. Optional ingredient (spices, oil, vinegar, herbs, garlic) — link if
+    //    found, but don't count toward coverage threshold
+    if (isOptionalIngredient(parsed)) {
+      if (foundProd) {
+        linked.push({ raw: ing, kind: 'linked', productKey: foundProd.key, productName: foundProd.name, optional: true });
+      } else {
+        linked.push({ raw: ing, kind: 'optional' });
+      }
+      continue;
+    }
+    // 4. Required ingredient — counted toward coverage
+    total++;
     if (foundProd) {
       matched++;
       linked.push({ raw: ing, kind: 'linked', productKey: foundProd.key, productName: foundProd.name });
@@ -3481,8 +3612,7 @@ function analyzeRecipeCoverage(recipe, productEntries) {
       linked.push({ raw: ing, kind: 'missing' });
     }
   }
-  const total = ings.length - skipped;
-  return { matched, total, ratio: total > 0 ? matched / total : 1, missing, skipped, linked };
+  return { matched, total, ratio: total > 0 ? matched / total : 1, missing, skipped: ings.length - total, linked };
 }
 
 // Whitelist threshold — recipes with coverage ≥ this become available for the
@@ -3923,17 +4053,33 @@ function findPortionBounds(name, cat) {
 // Local strict-mode generator: builds the week from FOODS only, no AI.
 // Same shape of output as generateMenuViaAI so the rest of the pipeline
 // (seed/enrich/apply) keeps working.
+// Local plan generator: builds the week from WHITELISTED RECIPES in the
+// directory. For each meal slot, picks one recipe whose meal-type tag
+// matches the slot. The meal slot's items become the recipe's linked
+// ingredients (so the menu shows them with the same product links as
+// recipe cards). Fully offline — no AI calls.
 function generateMenuLocally(pid) {
   const person = getPerson(pid);
   if (!person) return;
-  const targets   = getPersonTargets(pid);
-  const dailyKcal = targets.kcal || 2000;
+  const targets     = getPersonTargets(pid);
   const personMeals = getPersonMeals(pid);
-  const pools = buildFoodsPoolsForPerson(person);
+  const forbidden   = (person.forbidden || []).map(f => String(f).toLowerCase());
+  const isFb = name => forbidden.some(f => String(name||'').toLowerCase().includes(f));
 
-  // Sanity: need at least one protein and one carb to make a meal
-  if (!pools.protein.length && !pools.carb.length) {
-    throw new Error('У довіднику немає достатньо продуктів для генерації. Додай хоча б білки та крупи.');
+  // Group whitelisted recipes by meal type. Honor meal-type tags so
+  // breakfast recipes only land in breakfast slots.
+  const recipePool = { breakfast: [], lunch: [], dinner: [], snack: [] };
+  for (const [k, f] of Object.entries(FOODS)) {
+    if (!f || f.type !== 'recipe') continue;
+    if (!f.whitelisted) continue;
+    if (isFb(f.name)) continue;
+    for (const t of (f.tags || [])) {
+      if (recipePool[t]) recipePool[t].push({ key: k, food: f });
+    }
+  }
+
+  if (!Object.values(recipePool).some(p => p.length)) {
+    throw new Error('Немає whitelisted рецептів у довіднику. Запусти 🔬 Перевірити покриття у вкладці Рецепти і додай продукти що відсутні.');
   }
 
   if (!MENU[pid]) MENU[pid] = {};
@@ -3945,73 +4091,68 @@ function generateMenuLocally(pid) {
       continue;
     }
 
-    const types = slots.map(s => classifyMealSlot(s.name));
-    const rawShares = types.map(t => MEAL_KCAL_SHARE[t] || 0.1);
-    const totalShare = rawShares.reduce((s, x) => s + x, 0) || 1;
-    const slotKcals = rawShares.map(s => Math.round(dailyKcal * s / totalShare));
-
     const newDay = { totals: { ...targets } };
     if (MENU[pid][day]?.meals) newDay.meals = MENU[pid][day].meals;
 
     slots.forEach((slot, idx) => {
-      const type = types[idx];
-      const recipe = MEAL_RECIPE[type] || MEAL_RECIPE.snack;
-      const mealKcal = slotKcals[idx];
-
-      // Pick ingredients with rotation across days/slots so variety happens.
-      // Filter by meal-type tags: a tagged item only appears in matching slots.
-      const picks = [];
-      recipe.forEach((cat, ci) => {
-        const list = (pools[cat] || []).filter(it => isFoodAllowedForMealType(it, type));
-        if (!list.length) return;
-        const rot = ((day * 7 + idx * 3 + ci) % list.length + list.length) % list.length;
-        picks.push({ cat, food: list[rot] });
-      });
-
-      // Default portions per ingredient — prefer per-product bounds from POOL
-      // (so eggs default to 110g, max 220g) over generic category defaults.
-      const allBounds = picks.map(pk => findPortionBounds(pk.food.n, pk.cat));
-      const portions = allBounds.map(b => b.def);
-      const mainIdx = picks.map((p, i) => SCALABLE_CATEGORIES.has(p.cat) ? i : -1).filter(i => i >= 0);
-      if (mainIdx.length) {
-        let sideKcal = 0, mainKcal = 0;
-        picks.forEach((p, i) => {
-          const k = portions[i] * p.food.k / 100;
-          if (mainIdx.includes(i)) mainKcal += k; else sideKcal += k;
-        });
-        const targetMainKcal = Math.max(0, mealKcal - sideKcal);
-        if (mainKcal > 0) {
-          const scale = targetMainKcal / mainKcal;
-          for (const i of mainIdx) {
-            let g = portions[i] * scale;
-            g = Math.max(allBounds[i].min, Math.min(allBounds[i].max, g));
-            portions[i] = Math.max(20, Math.round(g / 10) * 10);
-          }
-        }
+      const type = classifyMealSlot(slot.name);
+      const pool = recipePool[type] || [];
+      if (!pool.length) {
+        // No matching recipe — leave the slot empty for the user to fill
+        newDay[slot.key] = { kcal: 0, items: [], recipeKey: null };
+        return;
       }
+      // Rotation across day*slot to vary picks
+      const rot = ((day * 7 + idx * 3) % pool.length + pool.length) % pool.length;
+      const picked = pool[rot];
+      const recipe = picked.food;
 
-      const items = picks.map((pk, i) => {
-        const item = {
-          n: pk.food.n,
-          g: `${portions[i]}г`,
-          kcal_per_100:    pk.food.k,
-          protein_per_100: pk.food.p,
-          fat_per_100:     pk.food.f,
-          carbs_per_100:   pk.food.c,
-        };
-        if (pk.food.silpoSlug) {
-          item.silpoSlug       = pk.food.silpoSlug;
-          item.silpoPrice      = pk.food.silpoPrice      ?? null;
-          item.silpoPriceRatio = pk.food.silpoPriceRatio ?? null;
-        }
-        return item;
-      });
+      // Convert recipe.linkedIngredients into menu items so the menu UI can
+      // show product links the same way as the recipe card. Only include
+      // 'linked' rows; staples/optional/missing are not real menu items.
+      const linked = Array.isArray(recipe.linkedIngredients) ? recipe.linkedIngredients : [];
+      const items = linked
+        .filter(l => l && l.kind === 'linked' && l.productKey)
+        .map(l => {
+          const product = FOODS[l.productKey] || {};
+          const item = {
+            n: l.productName || product.name || l.raw,
+            g: extractGramsFromRaw(l.raw) || '',
+            kcal_per_100:    product.kcal    || 0,
+            protein_per_100: product.protein || 0,
+            fat_per_100:     product.fat     || 0,
+            carbs_per_100:   product.carbs   || 0,
+            productKey: l.productKey,
+          };
+          if (product.silpoSlug) {
+            item.silpoSlug       = product.silpoSlug;
+            item.silpoPrice      = product.silpoPrice      ?? null;
+            item.silpoPriceRatio = product.silpoPriceRatio ?? null;
+          }
+          return item;
+        });
 
-      newDay[slot.key] = { kcal: mealKcal, items };
+      newDay[slot.key] = {
+        kcal: Math.round(recipe.kcal * (recipe.servings || 1)),  // rough total per serving
+        items,
+        // Store the recipe wrapper so the menu UI can show the recipe name
+        // and link to the recipe card
+        recipeKey:  picked.key,
+        recipeName: recipe.name,
+      };
     });
 
     MENU[pid][day] = newDay;
   }
+}
+
+// Best-effort: pull a gram value out of a raw klopotenko ingredient string.
+// Returns '150г' or empty string if no number found.
+function extractGramsFromRaw(raw) {
+  if (!raw) return '';
+  const m = String(raw).match(/(\d+(?:[.,]\d+)?)\s*(?:г|кг|мл|л|шт)?/i);
+  if (!m) return '';
+  return m[1] + (raw.match(/кг|л\b/i) ? (m[1] + 'кг') : 'г');
 }
 
 // Call AI for one person, parse, write into MENU[pid]
