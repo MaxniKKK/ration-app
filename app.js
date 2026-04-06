@@ -1406,12 +1406,17 @@ window.openPCard = function(key) {
   `;
 
   const actEl = document.getElementById('pcardActions');
-  const openBtn = (food.silpoSlug && food.source === 'silpo')
+  const isRecipe = food.type === 'recipe';
+  // Recipes don't get the Silpo open/link buttons — those are product-only.
+  const openBtn = (!isRecipe && food.silpoSlug && food.source === 'silpo')
     ? `<a class="pcard-open-a" href="https://silpo.ua/product/${food.silpoSlug}" target="_blank" onclick="event.stopPropagation()">Відкрити в Сільпо ↗</a>`
     : `<div style="flex:1"></div>`;
+  const silpoLinkBtn = isRecipe
+    ? ''
+    : `<button class="pcard-edit-btn" title="Привʼязати до продукту в Сільпо" onclick="openRemap('${key}')">🔗</button>`;
   actEl.innerHTML = `${openBtn}
     <button class="pcard-edit-btn" title="Заповнити КБЖУ через AI" onclick="applyAIFillFood('${key}')">🤖</button>
-    <button class="pcard-edit-btn" title="Привʼязати до продукту в Сільпо" onclick="openRemap('${key}')">🔗</button>
+    ${silpoLinkBtn}
     <button class="pcard-edit-btn" title="Редагувати КБЖУ" onclick="closePCard();showScreen('search');showFdTab('dir');startEditFood('${key}')">✏️</button>
     <button class="pcard-del-btn" title="Видалити" onclick="confirmDeletePCardFood('${key}')">🗑</button>`;
 
