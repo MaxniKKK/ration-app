@@ -565,7 +565,7 @@
           <input class="dir-filter" id="dirFilter" placeholder="Фільтр..." oninput="renderFoodsDir()">
           <button class="dir-add-btn" onclick="startAddFood()">+ Додати</button>
           <button class="dir-add-btn" style="background:var(--card2);color:var(--muted);border:1.5px solid var(--border)" onclick="toggleDirSelectMode()" id="btnDirSel">☑ Обрати</button>
-          <button class="dir-add-btn" style="background:var(--card2);color:var(--muted);border:1.5px solid var(--border)" onclick="autoFillWeek(false)" title="Оновити з Сільпо">🔄</button>
+          <button class="dir-add-btn" style="background:var(--card2);color:var(--muted);border:1.5px solid var(--border)" onclick="refetchAllFoods()" title="Заново завантажити всі продукти з Сільпо">🔄</button>
         </div>
         <!-- bulk action bar -->
         <div class="dir-sel-bar" id="dirSelBar">
@@ -769,6 +769,25 @@
         },
         { key: "dinner", name: "Вечеря", time: "19:00", ico: "🌙", cls: "id" },
       ];
+
+      // ── КАТЕГОРІЇ СІЛЬПО для авто-мапінгу ───────────────────────────────────
+      // Ключ — назва з PLAN_TEMPLATE, значення — масив підрядків які мають
+      // зустрітися в sectionSlug продукту Сільпо. Без матчу — продукт відкидається.
+      const FOOD_CATEGORIES = {
+        'Банан':                ['banany','frukty'],
+        'Яблука':               ['iabluka','frukty'],
+        'Апельсин':             ['tsytrus','apelsyn','frukty'],
+        'Помідор':              ['pomidor','tomat','ovoch'],
+        'Огірок':               ['ohirk','ovoch'],
+        'Картопля':             ['kartopl','ovoch'],
+        'Куряче філе':          ['kuriach','kurka','filie','miaso-pti'],
+        'Яйця курячі':          ['iaits','iaitse','iaichn'],
+        'Гречка':               ['hrechk','krup'],
+        'Рис':                  ['rys','krup'],
+        'Кефір 1%':             ['kefir'],
+        'Йогурт грецький':      ['yogurt','iohurt','grets'],
+        'Тунець консервований': ['tunets','rybni-konserv','konserv-rybn'],
+      };
 
       // ── ТИЖНЕВИЙ ПЛАН (Ти ~2200 ккал / Вона ~1800 ккал) ─────────────────────
       // Тільки дозволені продукти. Назви перевірені в Сільпо API.
@@ -1457,7 +1476,7 @@
         calM = new Date().getMonth(),
         calView = "month",
         selDate = null;
-      let _msCtx = null, _msFoods = [];
+      let _msCtx = null, _msFoods = [], _remapKey = null;
 
       // ═══════════════════════════════
       // FIREBASE SETUP
@@ -1958,6 +1977,7 @@
       window.closeMSearch = function() {
         document.getElementById("msearch").classList.remove("on");
         _msCtx = null;
+        _remapKey = null;
       };
 
       window.doMSearch = async function() {
@@ -1968,25 +1988,28 @@
         btn.disabled = true;
         res.innerHTML = `<div style="text-align:center;padding:20px;color:var(--muted);font-size:12px"><div class="spin" style="margin:0 auto 8px"></div><br>Шукаємо в Сільпо...</div>`;
         try {
-          const r = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products?limit=15&search=${encodeURIComponent(q)}`, {
+          const r = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products?limit=20&search=${encodeURIComponent(q)}`, {
             headers: { accept: "application/json" }
           });
           const data = await r.json();
-          const ql2 = q.toLowerCase();
-          const items = (data.items || []).sort((a, b) => {
-            const ai = a.title.toLowerCase().indexOf(ql2);
-            const bi = b.title.toLowerCase().indexOf(ql2);
-            return (ai === -1 ? 9999 : ai) - (bi === -1 ? 9999 : bi);
-          });
+          // Smart sort: exact/word matches first, shorter titles preferred
+          // No category filter — manual mode lets user pick anything
+          const items = (data.items || []).slice().sort((a, b) =>
+            silpoMatchScore(q, a, null) - silpoMatchScore(q, b, null)
+          );
           if (!items.length) {
             res.innerHTML = `<div style="text-align:center;padding:20px;color:var(--muted);font-size:12px">😔 Нічого не знайдено в Сільпо</div>`;
           } else {
             _msFoods = items;
             res.innerHTML = items.map((p, idx) => {
               const price = p.displayPrice ? `${p.displayPrice} грн/${p.displayRatio || "шт"}` : "";
-              return `<div class="msd-item" onclick="selectFoodForEdit(${idx})">
-                <div class="msd-iname">${p.title}${p.brandTitle ? ` <span style="color:var(--muted);font-weight:400">${p.brandTitle}</span>` : ""}</div>
-                <div class="msd-imac"><span style="color:var(--muted)">${price}</span><span style="color:var(--accent)">КБЖУ завантажиться...</span></div>
+              const thumb = p.icon ? `<img src="https://images.silpo.ua/products/100x100/${p.icon}" style="width:38px;height:38px;object-fit:contain;border-radius:6px;background:var(--card2);flex-shrink:0;margin-right:9px" onerror="this.style.display='none'">` : '';
+              return `<div class="msd-item" onclick="selectMsItem(${idx})" style="display:flex;align-items:center">
+                ${thumb}
+                <div style="flex:1;min-width:0">
+                  <div class="msd-iname">${p.title}${p.brandTitle ? ` <span style="color:var(--muted);font-weight:400">${p.brandTitle}</span>` : ""}</div>
+                  <div class="msd-imac"><span style="color:var(--muted)">${price}</span></div>
+                </div>
               </div>`;
             }).join("");
           }
@@ -1994,6 +2017,12 @@
           res.innerHTML = `<div style="text-align:center;padding:20px;color:var(--muted);font-size:12px">⚠️ Помилка мережі</div>`;
         }
         btn.disabled = false;
+      };
+
+      // Router — picks behavior based on whether we're in remap or edit-row mode
+      window.selectMsItem = function(idx) {
+        if (_remapKey) return applyRemap(idx);
+        return selectFoodForEdit(idx);
       };
 
       // Parse Silpo nutrient attributeGroups → { kcal, protein, fat, carbs }
@@ -2233,10 +2262,11 @@
         if (!food) return;
         _pcardKey = key;
 
-        // Image
+        // Image — silpoIcon is just the filename (UUID.png), need to build full URL
         const imgWrap = document.getElementById('pcardImgWrap');
-        if (food.silpoIcon) {
-          imgWrap.innerHTML = `<img class="pcard-img" src="${food.silpoIcon}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" alt=""><div class="pcard-img-none" style="display:none">🛒</div>`;
+        const imgUrl = food.silpoIcon ? `https://images.silpo.ua/products/350x350/${food.silpoIcon}` : null;
+        if (imgUrl) {
+          imgWrap.innerHTML = `<img class="pcard-img" src="${imgUrl}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" alt=""><div class="pcard-img-none" style="display:none">🛒</div>`;
         } else {
           imgWrap.innerHTML = `<div class="pcard-img-none">🛒</div>`;
         }
@@ -2267,8 +2297,9 @@
           ? `<a class="pcard-open-a" href="https://silpo.ua/product/${food.silpoSlug}" target="_blank" onclick="event.stopPropagation()">Відкрити в Сільпо ↗</a>`
           : `<div style="flex:1"></div>`;
         actEl.innerHTML = `${openBtn}
-          <button class="pcard-edit-btn" onclick="closePCard();showScreen('search');showFdTab('dir');startEditFood('${key}')">✏️</button>
-          <button class="pcard-del-btn" onclick="if(confirm('Видалити?')){deleteFoodItem('${key}');closePCard();}">🗑</button>`;
+          <button class="pcard-edit-btn" title="Змінити продукт у Сільпо" onclick="openRemap('${key}')">🔗</button>
+          <button class="pcard-edit-btn" title="Редагувати КБЖУ" onclick="closePCard();showScreen('search');showFdTab('dir');startEditFood('${key}')">✏️</button>
+          <button class="pcard-del-btn" title="Видалити" onclick="if(confirm('Видалити?')){deleteFoodItem('${key}');closePCard();}">🗑</button>`;
 
         document.getElementById('pcardModal').classList.add('on');
       };
@@ -2276,6 +2307,114 @@
       window.closePCard = function() {
         document.getElementById('pcardModal').classList.remove('on');
         _pcardKey = null;
+      };
+
+      // ─── MANUAL REMAP: pick a different Silpo product for a directory entry ──
+      window.openRemap = function(key) {
+        _remapKey = key;
+        _msCtx = null;
+        const food = FOODS[key];
+        document.getElementById('msInp').value = food?.name || '';
+        document.getElementById('msRes').innerHTML = `<div style="text-align:center;padding:20px;color:var(--muted);font-size:12px">Введи назву і натисни Шукати,<br>щоб обрати інший продукт з Сільпо</div>`;
+        document.getElementById('msearch').classList.add('on');
+        setTimeout(() => { const i = document.getElementById('msInp'); i.focus(); i.select(); }, 120);
+      };
+
+      window.applyRemap = async function(idx) {
+        const key = _remapKey;
+        if (!key) return;
+        const p = _msFoods[idx];
+        const res = document.getElementById('msRes');
+        const el = res.querySelectorAll('.msd-item')[idx];
+        if (el) {
+          const mac = el.querySelector('.msd-imac');
+          if (mac) mac.innerHTML = '<span style="color:var(--accent)">Завантажуємо КБЖУ...</span>';
+        }
+        let nutr = null;
+        try {
+          const r = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products/${p.slug}`, { headers: { accept: 'application/json' } });
+          const detail = await r.json();
+          nutr = parseSilpoNutr(detail.attributeGroups);
+        } catch(e) {}
+        const old = FOODS[key] || {};
+        FOODS[key] = {
+          name: old.name || p.title,
+          silpoTitle: p.title,
+          silpoSlug: p.slug,
+          silpoIcon: p.icon || null,
+          silpoPrice: p.displayPrice ?? null,
+          silpoPriceRatio: p.displayRatio ?? null,
+          source: 'silpo',
+          kcal:    nutr?.kcal    ?? old.kcal    ?? 0,
+          protein: nutr?.protein ?? old.protein ?? 0,
+          fat:     nutr?.fat     ?? old.fat     ?? 0,
+          carbs:   nutr?.carbs   ?? old.carbs   ?? 0,
+        };
+        if (db) set(ref(db, 'racion/foods/' + key), FOODS[key]).catch(() => {});
+        _remapKey = null;
+        closeMSearch();
+        renderFoodsDir();
+        showToast('Оновлено ✓');
+        // Re-open the card with new data
+        setTimeout(() => openPCard(key), 180);
+      };
+
+      // ─── FORCE RE-FETCH: refresh all directory entries from Silpo ────────────
+      // Re-fetches КБЖУ, price, icon, slug for every product in FOODS using
+      // the new category-aware matcher. Skips manually edited entries.
+      window.refetchAllFoods = async function() {
+        const keys = Object.keys(FOODS).filter(k => FOODS[k].source !== 'manual');
+        if (!keys.length) { showToast('Немає продуктів для оновлення'); return; }
+        if (!confirm(`Заново завантажити ${keys.length} продуктів з Сільпо?\n\nОновляться: КБЖУ, ціни, фото, назви.\nЗаписи відредаговані вручну не зміняться.`)) return;
+        const overlay = document.getElementById('progOverlay');
+        const bar     = document.getElementById('progBar');
+        const title   = document.getElementById('progTitle');
+        const sub     = document.getElementById('progSub');
+        overlay.classList.add('on');
+        bar.style.width = '0%';
+        let done = 0, ok = 0;
+        for (const key of keys) {
+          const food = FOODS[key];
+          const name = food.name || key;
+          title.textContent = 'Оновлюємо з Сільпо...';
+          sub.textContent = name;
+          bar.style.width = `${Math.round(done / keys.length * 100)}%`;
+          try {
+            let items = [];
+            for (const query of [name, name.split(' ')[0]]) {
+              const sr = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products?limit=20&search=${encodeURIComponent(query)}`, { headers: { accept: 'application/json' } });
+              const sd = await sr.json();
+              items = sd.items || [];
+              if (items.length) break;
+            }
+            const best = pickBestSilpo(items, name);
+            if (best) {
+              const dr = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products/${best.slug}`, { headers: { accept: 'application/json' } });
+              const detail = await dr.json();
+              const nutr = parseSilpoNutr(detail.attributeGroups);
+              if (nutr) {
+                FOODS[key] = {
+                  name,
+                  silpoTitle: best.title,
+                  silpoSlug: best.slug,
+                  silpoIcon: best.icon || null,
+                  silpoPrice: best.displayPrice ?? null,
+                  silpoPriceRatio: best.displayRatio ?? null,
+                  source: 'silpo',
+                  ...nutr,
+                };
+                if (db) set(ref(db, 'racion/foods/' + key), FOODS[key]).catch(() => {});
+                ok++;
+              }
+            }
+          } catch(e) {}
+          done++;
+        }
+        bar.style.width = '100%';
+        title.textContent = '✓ Готово!';
+        sub.textContent = `Оновлено ${ok} з ${keys.length}`;
+        renderFoodsDir();
+        setTimeout(() => overlay.classList.remove('on'), 1800);
       };
 
       function getItemSourceLink(it) {
@@ -2366,6 +2505,43 @@
         autoFillWeek(choice);
       };
 
+      // Score how well a Silpo product matches a query (lower = better).
+      // Honors category whitelist if provided. Returns 99999 if rejected.
+      function silpoMatchScore(query, item, allowedCats) {
+        const q = (query||'').toLowerCase().trim();
+        const t = (item.title||'').toLowerCase().trim();
+        const slug = (item.sectionSlug||'').toLowerCase();
+        if (allowedCats && allowedCats.length) {
+          const ok = allowedCats.some(c => slug.includes(c));
+          if (!ok) return 99999;
+        }
+        if (!q || !t) return 9999;
+        const lenPenalty = t.length * 0.01;
+        if (t === q) return 0;
+        const firstWord = t.split(/[\s,«(]/)[0];
+        if (firstWord === q) return 1 + lenPenalty;
+        // Title starts with query as substring (e.g. "Бананові" for "Банан") — worse
+        if (t.startsWith(q)) return 5 + lenPenalty;
+        // Query as a whole word somewhere
+        const escQ = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        if (new RegExp(`(^|[\\s,«(\\-])${escQ}([\\s,»)\\-]|$)`).test(t)) return 10 + lenPenalty;
+        const idx = t.indexOf(q);
+        if (idx === -1) return 9999;
+        return 50 + idx + lenPenalty;
+      }
+
+      function pickBestSilpo(items, name) {
+        if (!items || !items.length) return null;
+        const allowedCats = FOOD_CATEGORIES[name] || null;
+        let best = null, bestScore = 99999;
+        for (const it of items) {
+          const s = silpoMatchScore(name, it, allowedCats);
+          if (s < bestScore) { bestScore = s; best = it; }
+        }
+        if (bestScore >= 9999) return null;
+        return best;
+      }
+
       function applyPlanTemplate() {
         for (const p of ['you', 'her']) {
           for (const d of [0,1,2,3,4,5,6]) {
@@ -2423,23 +2599,16 @@
           if (FOODS[cKey]) { resolved[name] = FOODS[cKey]; done++; continue; }
 
           try {
+            // Search Silpo with wider limit, then pick best by category-aware score
             let items = [];
             for (const query of [name, name.split(' ')[0]]) {
-              const sr = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products?limit=5&search=${encodeURIComponent(query)}`, { headers: { accept: 'application/json' } });
+              const sr = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products?limit=20&search=${encodeURIComponent(query)}`, { headers: { accept: 'application/json' } });
               const sd = await sr.json();
               items = sd.items || [];
               if (items.length) break;
             }
-            if (!items.length) { done++; continue; }
-
-            // Best match by keyword position
-            const ql = name.toLowerCase();
-            items.sort((a, b) => {
-              const ai = a.title.toLowerCase().indexOf(ql);
-              const bi = b.title.toLowerCase().indexOf(ql);
-              return (ai < 0 ? 9999 : ai) - (bi < 0 ? 9999 : bi);
-            });
-            const best = items[0];
+            const best = pickBestSilpo(items, name);
+            if (!best) { done++; continue; }
 
             // Fetch detail for nutrition
             const dr = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products/${best.slug}`, { headers: { accept: 'application/json' } });
@@ -2447,9 +2616,9 @@
             const nutr = parseSilpoNutr(detail.attributeGroups);
 
             if (nutr) {
-              const entry = { ...nutr, silpoId: best.id, silpoSlug: best.slug, silpoTitle: best.title, silpoPrice: best.displayPrice, silpoPriceRatio: best.displayRatio };
+              const entry = { ...nutr, silpoId: best.id, silpoSlug: best.slug, silpoTitle: best.title, silpoIcon: best.icon || null, silpoPrice: best.displayPrice, silpoPriceRatio: best.displayRatio };
               resolved[name] = entry;
-              FOODS[cKey] = { name, silpoTitle: best.title, silpoSlug: best.slug, silpoIcon: best.icon || null, source: 'silpo', ...nutr };
+              FOODS[cKey] = { name, silpoTitle: best.title, silpoSlug: best.slug, silpoIcon: best.icon || null, silpoPrice: best.displayPrice, silpoPriceRatio: best.displayRatio, source: 'silpo', ...nutr };
               if (db) set(ref(db, 'racion/foods/' + cKey), FOODS[cKey]).catch(() => {});
             }
           } catch(e) {}
