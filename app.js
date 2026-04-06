@@ -230,6 +230,13 @@ function getPeopleIds() {
     .map(p => p.id);
 }
 
+// Per-day meal slots: returns the day's override if set, otherwise person default.
+// Use this everywhere where (pid, day) is known — never iterate getPersonMeals(p)
+// for a specific day, because the day may have its own custom slot config.
+function getDayMeals(pid, day) {
+  return MENU[pid]?.[day]?.meals || getPersonMeals(pid);
+}
+
 // Convert "#rrggbb" to "rgba(r,g,b,a)" for inline tinted backgrounds
 function hexToRgba(hex, alpha = 1) {
   const m = /^#?([a-f0-9]{6})$/i.exec(hex || '');
@@ -310,7 +317,7 @@ function initFirebase(cfg) {
         const fb = getPersonForbidden(p);
         if (!fb.length) return false;
         return [0,1,2,3,4,5,6].some(d =>
-          getPersonMeals(p).some(m =>
+          getDayMeals(p, d).some(m =>
             (MENU[p]?.[d]?.[m.key]?.items || []).some(it =>
               fb.some(f => it.n?.toLowerCase().includes(String(f).toLowerCase()))
             )
@@ -500,6 +507,7 @@ window.toggleEdit = function () {
   document.getElementById("editBanner").classList.toggle("on", editMode);
   document.getElementById("savebar").classList.toggle("on", editMode);
   document.getElementById("etr").classList.toggle("on", editMode);
+  document.getElementById("dayMealsBtn").style.display = editMode ? "block" : "none";
   if (editMode) {
     const t = MENU[person][curDay].totals;
     document.getElementById("et_k").value = t.kcal;
@@ -515,6 +523,7 @@ window.cancelEdit = function () {
   ["btnEdit", "editBanner", "savebar", "etr"].forEach((id) =>
     document.getElementById(id).classList.remove("on"),
   );
+  document.getElementById("dayMealsBtn").style.display = "none";
   renderMenuPage();
 };
 
@@ -543,6 +552,7 @@ window.saveEdit = async function () {
   ["btnEdit", "editBanner", "savebar", "etr"].forEach((id) =>
     document.getElementById(id).classList.remove("on"),
   );
+  document.getElementById("dayMealsBtn").style.display = "none";
   btn.disabled = false;
   btn.textContent = "☁️ Зберегти для обох";
   renderMenuPage();
@@ -563,7 +573,7 @@ function renderMenuPage() {
 function renderTotals() {
   const t = MENU[person][curDay].totals;
   let kcal = 0, protein = 0, fat = 0, carbs = 0, anyAuto = false;
-  getPersonMeals(person).forEach(m => {
+  getDayMeals(person, curDay).forEach(m => {
     const meal = MENU[person][curDay][m.key];
     if (!meal) return;
     const calc = calcMealNutr(meal);
@@ -593,8 +603,8 @@ function renderTotals() {
 function renderMeals() {
   const list = document.getElementById("mealsList");
   list.innerHTML = "";
-  // Ensure meal slots exist on day for current person's meal config
-  const pmeals = getPersonMeals(person);
+  // Use day-specific meal slots if overridden; otherwise person default
+  const pmeals = getDayMeals(person, curDay);
   const day = MENU[person][curDay];
   for (const m of pmeals) {
     if (!day[m.key]) day[m.key] = { kcal: 0, items: [] };
@@ -1381,7 +1391,7 @@ async function autoFillWeek(applyTemplate = false) {
     for (let d = 0; d <= 6; d++) {
       const dayData = MENU[p]?.[d];
       if (!dayData) continue;
-      for (const m of getPersonMeals(p)) {
+      for (const m of getDayMeals(p, d)) {
         const meal = dayData[m.key];
         if (!meal?.items) continue;
         meal.items.forEach((it, i) => {
@@ -1465,7 +1475,7 @@ function buildShoppingList() {
     for (let d = 0; d <= 6; d++) {
       const dayData = MENU[p]?.[d];
       if (!dayData) continue;
-      for (const m of getPersonMeals(p)) {
+      for (const m of getDayMeals(p, d)) {
         const meal = dayData[m.key];
         if (!meal?.items) continue;
         for (const it of meal.items) {
@@ -1611,7 +1621,9 @@ function renderMonth() {
         const pname = getPersonName(p);
         const pc = getPersonColor(p);
         let mh = "";
-        getPersonMeals(p).forEach((m) => {
+        // Logged day may have its own meals override saved in the snapshot
+        const dayMeals = pd.meals || getPersonMeals(p);
+        dayMeals.forEach((m) => {
           const ml = pd[m.key];
           if (ml && ml.items && ml.items.length)
             mh += `<div class="lpb-meal"><div class="lpb-mn">${m.ico} ${m.name}</div><div class="lpb-items">${ml.items.map((it) => it.n + (it.g ? " (" + it.g + ")" : "")).join(", ")}</div></div>`;
@@ -1761,6 +1773,89 @@ window.showFood = async function (i) {
 };
 window.closeMo = () =>
   document.getElementById("mo").classList.remove("on");
+
+// ═══════════════════════════════
+// DAY MEALS EDITOR (per-day override of meal slots)
+// ═══════════════════════════════
+let _dmDraft = null;     // working copy of meals array for the day being edited
+let _dmReset = false;    // user pressed "reset to default" — drop override on save
+
+window.openDayMealsEditor = function() {
+  _dmDraft = JSON.parse(JSON.stringify(getDayMeals(person, curDay)));
+  _dmReset = false;
+  document.getElementById('dmDayLabel').textContent = `· ${DAYS[curDay]} · ${getPersonName(person)}`;
+  const hasOverride = !!MENU[person]?.[curDay]?.meals;
+  document.getElementById('dmSubTitle').textContent = hasOverride
+    ? 'Цей день має власні налаштування'
+    : 'Зараз використовуються налаштування з профіля';
+  renderDmList();
+  document.getElementById('dmModal').classList.add('on');
+};
+
+function renderDmList() {
+  document.getElementById('dm_meals_list').innerHTML = _dmDraft.map((m, i) => `
+    <div class="pe-meal-row">
+      <input class="pe-meal-ico" value="${escapeHtml(m.ico || '')}" oninput="_dmDraft[${i}].ico=this.value" maxlength="2">
+      <input class="pe-meal-name" value="${escapeHtml(m.name || '')}" oninput="_dmDraft[${i}].name=this.value" placeholder="Назва">
+      <input class="pe-meal-time" value="${escapeHtml(m.time || '')}" oninput="_dmDraft[${i}].time=this.value" placeholder="час">
+      <button class="pe-meal-del" onclick="dmRemoveMeal(${i})" ${_dmDraft.length <= 1 ? 'disabled style="opacity:.4"' : ''}>✕</button>
+    </div>
+  `).join('');
+}
+
+window.dmAddMeal = function() {
+  let n = 1, key = `meal${n}`;
+  const ex = new Set(_dmDraft.map(m => m.key));
+  while (ex.has(key)) { n++; key = `meal${n}`; }
+  _dmDraft.push({ key, name: 'Новий прийом', time: '12:00', ico: '🍴', cls: 'is' });
+  renderDmList();
+};
+
+window.dmRemoveMeal = function(i) {
+  if (_dmDraft.length <= 1) return;
+  _dmDraft.splice(i, 1);
+  renderDmList();
+};
+
+window.dmResetToDefault = function() {
+  if (!confirm('Скинути прийоми їжі цього дня до налаштувань профіля?')) return;
+  _dmReset = true;
+  _dmDraft = JSON.parse(JSON.stringify(getPersonMeals(person)));
+  renderDmList();
+  document.getElementById('dmSubTitle').textContent = 'Скинуто. Натисни Зберегти щоб застосувати';
+};
+
+window.saveDayMeals = async function() {
+  const day = MENU[person][curDay];
+  if (_dmReset) {
+    delete day.meals;
+  } else {
+    // Sanitize: every slot needs a unique non-empty key
+    const seen = new Set();
+    for (let i = 0; i < _dmDraft.length; i++) {
+      let k = _dmDraft[i].key || `meal${i+1}`;
+      while (seen.has(k)) k = k + '_';
+      _dmDraft[i].key = k;
+      seen.add(k);
+    }
+    day.meals = _dmDraft.map(m => ({ ...m }));
+  }
+  // Ensure each slot has a {kcal,items} entry on the day
+  for (const m of (day.meals || getPersonMeals(person))) {
+    if (!day[m.key]) day[m.key] = { kcal: 0, items: [] };
+  }
+  await pushMenu();
+  closeDayMeals();
+  renderMeals();
+  renderTotals();
+  showToast('Збережено ✓');
+};
+
+window.closeDayMeals = function() {
+  document.getElementById('dmModal').classList.remove('on');
+  _dmDraft = null;
+  _dmReset = false;
+};
 
 // ═══════════════════════════════
 // PROFILE / PEOPLE EDITOR

@@ -360,6 +360,10 @@ body.py .vitems li::before{background:var(--you);}body.ph .vitems li::before{bac
 .pcard-edit-btn{padding:13px 16px;background:none;border:1.5px solid var(--border);border-radius:13px;font-size:16px;cursor:pointer;color:var(--muted);}
 .pcard-del-btn{padding:13px 16px;background:rgba(239,68,68,.08);border:1.5px solid rgba(239,68,68,.2);border-radius:13px;font-size:16px;cursor:pointer;color:#ef4444;}
 
+/* ── DAY MEALS BUTTON (in edit mode) ── */
+.day-meals-btn{width:100%;background:rgba(255,107,53,.06);border:1px dashed rgba(255,107,53,.25);border-radius:11px;color:var(--accent2);font-family:'Unbounded',sans-serif;font-size:10px;font-weight:700;padding:10px;margin-bottom:10px;cursor:pointer;}
+.day-meals-btn:active{background:rgba(255,107,53,.12);}
+
 /* ── PROFILE SCREEN ── */
 .profile-header{padding:18px 16px 8px;background:var(--bg);border-bottom:1px solid var(--border);}
 .ph-title{font-family:'Unbounded',sans-serif;font-size:15px;font-weight:800;margin-bottom:3px;}
