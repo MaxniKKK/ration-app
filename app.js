@@ -278,11 +278,12 @@ function generateMenuForPerson(pid) {
         };
         // If this ingredient is already linked to a Silpo product in FOODS,
         // attach the slug/price so the menu UI shows ↗ Сільпо right away.
+        // Coalesce missing fields to null — Firebase rejects undefined.
         const food = FOODS[foodKey(ing.n)];
         if (food?.silpoSlug) {
-          item.silpoSlug      = food.silpoSlug;
-          item.silpoPrice     = food.silpoPrice;
-          item.silpoPriceRatio= food.silpoPriceRatio;
+          item.silpoSlug       = food.silpoSlug;
+          item.silpoPrice      = food.silpoPrice      ?? null;
+          item.silpoPriceRatio = food.silpoPriceRatio ?? null;
         }
         items.push(item);
       });
@@ -1573,8 +1574,8 @@ function applyFoodsToMenuItems() {
           it.carbs_per_100   = food.carbs   || 0;
           if (food.silpoSlug) {
             it.silpoSlug       = food.silpoSlug;
-            it.silpoPrice      = food.silpoPrice;
-            it.silpoPriceRatio = food.silpoPriceRatio;
+            it.silpoPrice      = food.silpoPrice      ?? null;
+            it.silpoPriceRatio = food.silpoPriceRatio ?? null;
           }
         }
       }
