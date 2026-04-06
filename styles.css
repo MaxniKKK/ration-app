@@ -394,6 +394,21 @@ body{background:var(--bg);color:var(--text);font-family:'Golos Text',sans-serif;
 .pcard-recipe-meta a{color:var(--blue);text-decoration:none;}
 .dir-recipe-icon{display:inline-block;margin-right:5px;}
 
+/* ── RECIPE INGREDIENTS LIST in product card ── */
+.pcard-ings-section{margin-bottom:14px;padding-top:12px;border-top:1px solid var(--border);}
+.pcard-ings-label{font-family:'Unbounded',sans-serif;font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px;}
+.pcard-ings-list{list-style:none;padding:0;margin:0;}
+.pcard-ings-list li{display:flex;align-items:center;gap:8px;padding:7px 0;font-size:12px;border-bottom:1px solid rgba(255,255,255,.04);}
+.pcard-ings-list li:last-child{border-bottom:none;}
+.pcard-ing-icon{font-size:10px;flex-shrink:0;width:14px;text-align:center;}
+.pcard-ing-icon.linked{color:#4ade80;}
+.pcard-ing-icon.missing{color:#f87171;}
+.pcard-ing-icon.staple{color:var(--muted);}
+.pcard-ing-raw{flex:1;color:#ccc;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pcard-ing-link{color:var(--blue);cursor:pointer;text-decoration:none;font-size:11px;flex-shrink:0;max-width:50%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pcard-ing-link:active{opacity:.6;}
+.pcard-ing-meta{font-size:10px;color:var(--muted);margin-top:8px;font-style:italic;}
+
 .pcard-tags-section{margin-bottom:14px;padding-top:12px;border-top:1px solid var(--border);}
 .pcard-tags-label{font-family:'Unbounded',sans-serif;font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px;}
 .pcard-tags-row{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px;}

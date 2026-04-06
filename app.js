@@ -1290,6 +1290,53 @@ window.openPCard = function(key) {
     srcEl.textContent = 'Додано вручну';
   }
 
+  // Recipe ingredients section — only for type='recipe'. Shows each raw
+  // ingredient string with its resolved status (linked / staple / missing).
+  // Linked rows are clickable → opens that product's card. Computes a
+  // fresh link list on demand if linkedIngredients was never persisted.
+  const ingsEl = document.getElementById('pcardIngsSection');
+  if (food.type === 'recipe' && Array.isArray(food.ingredients) && food.ingredients.length) {
+    let linked = food.linkedIngredients;
+    if (!Array.isArray(linked)) {
+      // Lazy compute on first card open after a fresh load
+      const products = Object.entries(FOODS)
+        .filter(([k, f]) => f && f.type !== 'recipe' && f.name)
+        .map(([k, f]) => ({ key: k, name: f.name }));
+      linked = analyzeRecipeCoverage(food, products).linked;
+    }
+    const matchedCount = linked.filter(l => l.kind === 'linked').length;
+    const missingCount = linked.filter(l => l.kind === 'missing').length;
+    const stapleCount  = linked.filter(l => l.kind === 'staple').length;
+    ingsEl.innerHTML = `
+      <div class="pcard-ings-label">Інгредієнти${food.servings ? ` · на ${food.servings} порц.` : ''}</div>
+      <ul class="pcard-ings-list">
+        ${linked.map(l => {
+          if (l.kind === 'linked') {
+            return `<li>
+              <span class="pcard-ing-icon linked" title="Привʼязано до продукту">●</span>
+              <span class="pcard-ing-raw">${escapeHtml(l.raw)}</span>
+              <a class="pcard-ing-link" onclick="event.stopPropagation();openPCard('${l.productKey}')">→ ${escapeHtml(l.productName || '')}</a>
+            </li>`;
+          }
+          if (l.kind === 'staple') {
+            return `<li>
+              <span class="pcard-ing-icon staple" title="Базовий продукт (завжди є)">○</span>
+              <span class="pcard-ing-raw" style="color:var(--muted)">${escapeHtml(l.raw)}</span>
+            </li>`;
+          }
+          return `<li>
+            <span class="pcard-ing-icon missing" title="Немає в довіднику продуктів">✕</span>
+            <span class="pcard-ing-raw">${escapeHtml(l.raw)}</span>
+          </li>`;
+        }).join('')}
+      </ul>
+      <div class="pcard-ing-meta">${matchedCount} в довіднику · ${missingCount} відсутні · ${stapleCount} базові${food.sourceUrl ? ` · <a href="${food.sourceUrl}" target="_blank" onclick="event.stopPropagation()" style="color:var(--blue);text-decoration:none">↗ klopotenko</a>` : ''}</div>
+    `;
+    ingsEl.style.display = '';
+  } else {
+    ingsEl.style.display = 'none';
+  }
+
   // Meal-type tags: which slot types this product can appear in
   const tagsEl = document.getElementById('pcardTagsSection');
   const curTags = food.tags || [];
@@ -3404,23 +3451,38 @@ function ingredientMatchesProduct(ingredientText, productName) {
 // For one recipe: how many of its non-staple ingredients map to a product
 // in FOODS? Pantry staples (сіль, перець, спеції, etc) are excluded from
 // both matched and total — they're assumed always available.
+//
+// Also returns `linked` — a parallel array describing each raw ingredient
+// with its resolved status: { raw, kind: 'staple'|'linked'|'missing',
+// productKey?, productName? }. The recipe card uses this to render
+// clickable product links inline.
 function analyzeRecipeCoverage(recipe, productEntries) {
   const ings = recipe.ingredients || [];
-  if (!ings.length) return { matched: 0, total: 0, ratio: 0, missing: [], skipped: 0 };
+  if (!ings.length) return { matched: 0, total: 0, ratio: 0, missing: [], skipped: 0, linked: [] };
   let matched = 0, skipped = 0;
   const missing = [];
+  const linked = [];
   for (const ing of ings) {
     const parsed = parseIngredientName(ing);
-    if (isPantryStaple(parsed)) { skipped++; continue; }
-    let found = false;
-    for (const prod of productEntries) {
-      if (ingredientMatchesProduct(ing, prod.name)) { found = true; break; }
+    if (isPantryStaple(parsed)) {
+      skipped++;
+      linked.push({ raw: ing, kind: 'staple' });
+      continue;
     }
-    if (found) matched++;
-    else missing.push(ing);
+    let foundProd = null;
+    for (const prod of productEntries) {
+      if (ingredientMatchesProduct(ing, prod.name)) { foundProd = prod; break; }
+    }
+    if (foundProd) {
+      matched++;
+      linked.push({ raw: ing, kind: 'linked', productKey: foundProd.key, productName: foundProd.name });
+    } else {
+      missing.push(ing);
+      linked.push({ raw: ing, kind: 'missing' });
+    }
   }
   const total = ings.length - skipped;
-  return { matched, total, ratio: total > 0 ? matched / total : 1, missing, skipped };
+  return { matched, total, ratio: total > 0 ? matched / total : 1, missing, skipped, linked };
 }
 
 // Whitelist threshold — recipes with coverage ≥ this become available for the
@@ -3445,20 +3507,35 @@ window.runRecipeCoverageAnalysis = function() {
 
   const recipes = Object.entries(FOODS).filter(([k, f]) => f?.type === 'recipe');
   let whitelisted = 0;
-  // Count missing ingredient frequencies — useful TODO for the user.
-  // Skip parses that are pure staples (defensive: should already be filtered
-  // out in analyzeRecipeCoverage but double-check here).
   const missingFreq = new Map();
+  const fbBatch = {};
   for (const [key, recipe] of recipes) {
     const cov = analyzeRecipeCoverage(recipe, products);
     recipe._coverage = cov;
     const isWhite = cov.ratio >= RECIPE_WHITELIST_THRESHOLD;
     recipe._whitelisted = isWhite;
+    // Persist linked ingredients + whitelist flag onto the recipe so the
+    // card can render product links and the strict generator can pre-filter
+    // without re-running the analysis on every page load.
+    recipe.linkedIngredients = cov.linked;
+    recipe.whitelisted = isWhite;
+    fbBatch['racion/foods/' + key + '/linkedIngredients'] = cov.linked;
+    fbBatch['racion/foods/' + key + '/whitelisted']       = isWhite;
     if (isWhite) whitelisted++;
     for (const m of cov.missing) {
       const base = parseIngredientName(m);
       if (!base || isPantryStaple(base)) continue;
       missingFreq.set(base, (missingFreq.get(base) || 0) + 1);
+    }
+  }
+
+  // Batched persist (chunks of 200 keys → ~50 recipes per call)
+  if (db) {
+    const keys = Object.keys(fbBatch);
+    for (let i = 0; i < keys.length; i += 200) {
+      const chunk = {};
+      keys.slice(i, i + 200).forEach(k => chunk[k] = fbBatch[k]);
+      update(ref(db), chunk).catch(e => console.warn('[cov-persist]', e));
     }
   }
 
