@@ -1219,17 +1219,27 @@ window.dirDeselectAll = function() {
 
 window.deleteSelected = function() {
   if (!_dirSelected.size) { showToast('Нічого не обрано'); return; }
-  if (!confirm(`Видалити ${_dirSelected.size} продуктів з довідника?`)) return;
-  const batch = [];
-  _dirSelected.forEach(key => {
-    delete FOODS[key];
-    if (db) batch.push(set(ref(db, 'racion/foods/' + key), null).catch(() => {}));
+  const count = _dirSelected.size;
+  showConfirm({
+    icon: '🗑',
+    title: 'Видалити продукти?',
+    text: `${count} ${count === 1 ? 'продукт буде видалено' : 'продуктів буде видалено'} з довідника. Це не можна відмінити.`,
+    actions: [
+      { label: 'Видалити', style: 'danger', onClick: () => {
+        const batch = [];
+        _dirSelected.forEach(key => {
+          delete FOODS[key];
+          if (db) batch.push(set(ref(db, 'racion/foods/' + key), null).catch(() => {}));
+        });
+        Promise.all(batch);
+        _dirSelected.clear();
+        _updateSelCount();
+        renderFoodsDir();
+        showToast('Видалено ✓');
+      }},
+      { label: 'Скасувати', style: 'cancel' },
+    ],
   });
-  Promise.all(batch);
-  _dirSelected.clear();
-  _updateSelCount();
-  renderFoodsDir();
-  showToast(`Видалено ✓`);
 };
 
 window.openDirItem = function(key) {
@@ -1283,7 +1293,7 @@ window.openPCard = function(key) {
     <button class="pcard-edit-btn" title="Заповнити КБЖУ через AI (вбудовані дані)" onclick="applyAIFillFood('${key}')">🤖</button>
     <button class="pcard-edit-btn" title="Привʼязати до продукту в Сільпо" onclick="openRemap('${key}')">🔗</button>
     <button class="pcard-edit-btn" title="Редагувати КБЖУ" onclick="closePCard();showScreen('search');showFdTab('dir');startEditFood('${key}')">✏️</button>
-    <button class="pcard-del-btn" title="Видалити" onclick="if(confirm('Видалити?')){deleteFoodItem('${key}');closePCard();}">🗑</button>`;
+    <button class="pcard-del-btn" title="Видалити" onclick="confirmDeletePCardFood('${key}')">🗑</button>`;
 
   document.getElementById('pcardModal').classList.add('on');
 };
@@ -1291,6 +1301,19 @@ window.openPCard = function(key) {
 window.closePCard = function() {
   document.getElementById('pcardModal').classList.remove('on');
   _pcardKey = null;
+};
+
+window.confirmDeletePCardFood = function(key) {
+  const food = FOODS[key];
+  showConfirm({
+    icon: '🗑',
+    title: 'Видалити продукт?',
+    text: `"${food?.name || key}" буде видалено з довідника. Це не можна відмінити.`,
+    actions: [
+      { label: 'Видалити', style: 'danger', onClick: () => { deleteFoodItem(key, true); closePCard(); }},
+      { label: 'Скасувати', style: 'cancel' },
+    ],
+  });
 };
 
 // ─── MANUAL REMAP: pick a different Silpo product for a directory entry ──
@@ -1376,10 +1399,21 @@ window.applyRemap = async function(idx) {
 // ─── FORCE RE-FETCH: refresh all directory entries from Silpo ────────────
 // Re-fetches КБЖУ, price, icon, slug for every product in FOODS using
 // the new category-aware matcher. Skips manually edited entries.
-window.refetchAllFoods = async function() {
+window.refetchAllFoods = function() {
   const keys = Object.keys(FOODS).filter(k => FOODS[k].source !== 'manual');
   if (!keys.length) { showToast('Немає продуктів для оновлення'); return; }
-  if (!confirm(`Заново завантажити ${keys.length} продуктів з Сільпо?\n\nОновляться: КБЖУ, ціни, фото, назви.\nЗаписи відредаговані вручну не зміняться.`)) return;
+  showConfirm({
+    icon: '🔄',
+    title: 'Заново завантажити з Сільпо?',
+    text: `${keys.length} продуктів буде оновлено: КБЖУ, ціни, фото, назви. Записи відредаговані вручну не зміняться.`,
+    actions: [
+      { label: 'Оновити', style: 'primary', onClick: () => _doRefetchAllFoods(keys) },
+      { label: 'Скасувати', style: 'cancel' },
+    ],
+  });
+};
+
+async function _doRefetchAllFoods(keys) {
   const overlay = document.getElementById('progOverlay');
   const bar     = document.getElementById('progBar');
   const title   = document.getElementById('progTitle');
@@ -1481,13 +1515,24 @@ window.saveFoodItem = function(originalKey) {
   showToast('Збережено ✓');
 };
 
-window.deleteFoodItem = function(key) {
+window.deleteFoodItem = function(key, skipConfirm = false) {
   const name = FOODS[key]?.name || key.replace(/_/g,' ');
-  if (!confirm(`Видалити "${name}" з довідника?`)) return;
-  delete FOODS[key];
-  if (db) set(ref(db, 'racion/foods/' + key), null).catch(() => {});
-  renderFoodsDir();
-  showToast('Видалено');
+  const doDelete = () => {
+    delete FOODS[key];
+    if (db) set(ref(db, 'racion/foods/' + key), null).catch(() => {});
+    renderFoodsDir();
+    showToast('Видалено');
+  };
+  if (skipConfirm) return doDelete();
+  showConfirm({
+    icon: '🗑',
+    title: 'Видалити продукт?',
+    text: `"${name}" буде видалено з довідника.`,
+    actions: [
+      { label: 'Видалити', style: 'danger', onClick: doDelete },
+      { label: 'Скасувати', style: 'cancel' },
+    ],
+  });
 };
 
 window.startAddFood = function() {
@@ -1778,15 +1823,16 @@ async function autoFillWeek(mode = null) {
   bar.style.width = '0%';
 
   try {
-    // Phase 1 — AI generation (when mode is 'free' or 'strict')
-    if (mode === 'free' || mode === 'strict') {
+    // Phase 1 — generation
+    // - 'free' → AI call per person (network, costs money)
+    // - 'strict' → 100% local generator from FOODS, no AI call at all
+    if (mode === 'free') {
       const provLabel = AI_PROVIDERS[getAIProvider()].label;
       const ids = getPeopleIds();
       for (let i = 0; i < ids.length; i++) {
         const pid = ids[i];
         title.textContent = `${provLabel} генерує план...`;
-        const modeLabel = mode === 'strict' ? 'лише з довідника' : 'вільний режим';
-        sub.textContent = `${getPersonName(pid)} (${i+1}/${ids.length}) · ${modeLabel} — до 1 хв`;
+        sub.textContent = `${getPersonName(pid)} (${i+1}/${ids.length}) — до 1 хв`;
         bar.style.width = `${Math.round((i / ids.length) * 50)}%`;
         const slowAnim = setInterval(() => {
           const cur = parseFloat(bar.style.width) || 0;
@@ -1794,10 +1840,19 @@ async function autoFillWeek(mode = null) {
           if (cur < max) bar.style.width = (cur + 0.4) + '%';
         }, 700);
         try {
-          await generateMenuViaAI(pid, mode);
+          await generateMenuViaAI(pid, 'free');
         } finally {
           clearInterval(slowAnim);
         }
+      }
+    } else if (mode === 'strict') {
+      title.textContent = 'Складаємо план з довідника...';
+      const ids = getPeopleIds();
+      for (let i = 0; i < ids.length; i++) {
+        const pid = ids[i];
+        sub.textContent = `${getPersonName(pid)} (${i+1}/${ids.length})`;
+        bar.style.width = `${Math.round((i / ids.length) * 50)}%`;
+        generateMenuLocally(pid);
       }
     }
 
@@ -2206,11 +2261,20 @@ window.dmRemoveMeal = function(i) {
 };
 
 window.dmResetToDefault = function() {
-  if (!confirm('Скинути прийоми їжі цього дня до налаштувань профіля?')) return;
-  _dmReset = true;
-  _dmDraft = JSON.parse(JSON.stringify(getPersonMeals(person)));
-  renderDmList();
-  document.getElementById('dmSubTitle').textContent = 'Скинуто. Натисни Зберегти щоб застосувати';
+  showConfirm({
+    icon: '↺',
+    title: 'Скинути прийоми дня?',
+    text: 'Прийоми їжі цього дня повернуться до налаштувань з профіля. Зміни підтвердиш кнопкою Зберегти.',
+    actions: [
+      { label: 'Скинути', style: 'primary', onClick: () => {
+        _dmReset = true;
+        _dmDraft = JSON.parse(JSON.stringify(getPersonMeals(person)));
+        renderDmList();
+        document.getElementById('dmSubTitle').textContent = 'Скинуто. Натисни Зберегти щоб застосувати';
+      }},
+      { label: 'Скасувати', style: 'cancel' },
+    ],
+  });
 };
 
 window.saveDayMeals = async function() {
@@ -2457,33 +2521,38 @@ window.savePersonFromEditor = async function() {
   showToast('Збережено ✓');
 };
 
-window.deletePersonFromEditor = async function() {
+window.deletePersonFromEditor = function() {
   if (!_peEditingId) return;
   if (getPeopleIds().length <= 1) { showToast('Має лишитись хоча б 1 людина'); return; }
   const name = _peDraft?.name || _peEditingId;
-  if (!confirm(`Видалити "${name}"?\n\nВсе її меню та записи в щоденнику теж видаляться.`)) return;
-  const pid = _peEditingId;
-  delete PEOPLE[pid];
-  delete MENU[pid];
-  // Strip from DIARY entries
-  for (const k of Object.keys(DIARY)) {
-    if (DIARY[k]?.[pid]) delete DIARY[k][pid];
-  }
-  if (db) {
-    try {
-      await set(ref(db, 'racion/people/' + pid), null);
-      await set(ref(db, 'racion/menu/'   + pid), null);
-      await set(ref(db, 'racion/diary'), DIARY);
-    } catch(e) {}
-  }
-  // If we just deleted the active person, switch to the first remaining one
-  if (person === pid) {
-    person = getPeopleIds()[0];
-  }
-  closePersonEditor();
-  renderPeople();
-  renderMenuPage();
-  showToast('Видалено');
+  showConfirm({
+    icon: '🗑',
+    title: `Видалити "${name}"?`,
+    text: 'Все її меню та записи в щоденнику теж видаляться. Це не можна відмінити.',
+    actions: [
+      { label: 'Видалити', style: 'danger', onClick: async () => {
+        const pid = _peEditingId;
+        delete PEOPLE[pid];
+        delete MENU[pid];
+        for (const k of Object.keys(DIARY)) {
+          if (DIARY[k]?.[pid]) delete DIARY[k][pid];
+        }
+        if (db) {
+          try {
+            await set(ref(db, 'racion/people/' + pid), null);
+            await set(ref(db, 'racion/menu/'   + pid), null);
+            await set(ref(db, 'racion/diary'), DIARY);
+          } catch(e) {}
+        }
+        if (person === pid) person = getPeopleIds()[0];
+        closePersonEditor();
+        renderPeople();
+        renderMenuPage();
+        showToast('Видалено');
+      }},
+      { label: 'Скасувати', style: 'cancel' },
+    ],
+  });
 };
 
 // ═══════════════════════════════
@@ -2746,6 +2815,142 @@ function parseAIPlanResponse(text) {
   const last  = t.lastIndexOf('}');
   if (first >= 0 && last > first) t = t.slice(first, last + 1);
   return JSON.parse(t);
+}
+
+// ── LOCAL CLASSIFIER for FOODS entries ─────────────────────────────────
+// Used by strict-mode generator that runs without any AI calls.
+// Returns 'protein'|'dairy'|'carb'|'fruit'|'veggie' or null if unrecognised.
+function classifyFood(name) {
+  const n = (name || '').toLowerCase();
+  if (/куряч|філе|м.?яс|свинин|телятин|яловичин|індич|тунець|лосось|форел|тіляп|риб|креветк|кальмар|восьмин|мідії|яйц|індич|кролик/.test(n)) return 'protein';
+  if (/йогурт|кефір|молоко|молочн|сметан|ряжанк|снежок|айран|твор|маскарпон|рікот/.test(n)) return 'dairy';
+  if (/сир(\b|у|ів|и|ом)/.test(n) && !/сирок|сирн/.test(n)) return 'protein';   // hard cheese ≈ protein
+  if (/гречк|^рис| рис|макарон|спагет|лапш|хліб|тост|хлопь|вівсян|овес|кіноа|кускус|булгур|перлов|пшеничн|пшоно|картопл|батат|лаваш|тортіл|піт/.test(n)) return 'carb';
+  if (/банан|яблук|апельсин|груш|малин|полуниц|виногр|ківі|манго|персик|нектарин|чорниц|лохин|мандарин|грейпфрут|диня|кавун|ягод|вишн|сливи|абрикос|ананас|папай|гранат/.test(n)) return 'fruit';
+  if (/огірок|помідор|томат|перец|цибул|морк|капуст|буряк|брокол|салат|шпинат|кабачк|баклажан|редис|зеленин|петрушк|кріп|часник|гарбуз|спаржа|ріпа|редьк|кольраб/.test(n)) return 'veggie';
+  return null;
+}
+
+// Build per-category pools from FOODS, skipping forbidden and unrecognised.
+function buildFoodsPoolsForPerson(person) {
+  const fb = (person.forbidden || []);
+  const isFb = name => fb.some(f => name.toLowerCase().includes(String(f).toLowerCase()));
+  const pools = { protein: [], dairy: [], carb: [], fruit: [], veggie: [] };
+  for (const [key, food] of Object.entries(FOODS)) {
+    if (!food || !food.name || !(food.kcal > 0)) continue;
+    if (isFb(food.name)) continue;
+    const cat = classifyFood(food.name);
+    if (!cat) continue;
+    pools[cat].push({
+      key, n: food.name,
+      k: food.kcal, p: food.protein || 0, f: food.fat || 0, c: food.carbs || 0,
+      silpoSlug:       food.silpoSlug,
+      silpoPrice:      food.silpoPrice      ?? null,
+      silpoPriceRatio: food.silpoPriceRatio ?? null,
+    });
+  }
+  return pools;
+}
+
+// Sensible portion bounds per category for FOODS-based generation.
+const CAT_PORTION = {
+  protein: { def: 150, min: 80,  max: 250 },
+  dairy:   { def: 200, min: 100, max: 350 },
+  carb:    { def: 100, min: 50,  max: 200 },
+  fruit:   { def: 130, min: 80,  max: 250 },
+  veggie:  { def: 100, min: 50,  max: 200 },
+};
+
+// Local strict-mode generator: builds the week from FOODS only, no AI.
+// Same shape of output as generateMenuViaAI so the rest of the pipeline
+// (seed/enrich/apply) keeps working.
+function generateMenuLocally(pid) {
+  const person = getPerson(pid);
+  if (!person) return;
+  const targets   = getPersonTargets(pid);
+  const dailyKcal = targets.kcal || 2000;
+  const personMeals = getPersonMeals(pid);
+  const pools = buildFoodsPoolsForPerson(person);
+
+  // Sanity: need at least one protein and one carb to make a meal
+  if (!pools.protein.length && !pools.carb.length) {
+    throw new Error('У довіднику немає достатньо продуктів для генерації. Додай хоча б білки та крупи.');
+  }
+
+  if (!MENU[pid]) MENU[pid] = {};
+
+  for (const day of [0, 1, 2, 3, 4, 5, 6]) {
+    const slots = MENU[pid][day]?.meals || personMeals;
+    if (!slots || !slots.length) {
+      MENU[pid][day] = { totals: { ...targets } };
+      continue;
+    }
+
+    const types = slots.map(s => classifyMealSlot(s.name));
+    const rawShares = types.map(t => MEAL_KCAL_SHARE[t] || 0.1);
+    const totalShare = rawShares.reduce((s, x) => s + x, 0) || 1;
+    const slotKcals = rawShares.map(s => Math.round(dailyKcal * s / totalShare));
+
+    const newDay = { totals: { ...targets } };
+    if (MENU[pid][day]?.meals) newDay.meals = MENU[pid][day].meals;
+
+    slots.forEach((slot, idx) => {
+      const type = types[idx];
+      const recipe = MEAL_RECIPE[type] || MEAL_RECIPE.snack;
+      const mealKcal = slotKcals[idx];
+
+      // Pick ingredients with rotation across days/slots so variety happens
+      const picks = [];
+      recipe.forEach((cat, ci) => {
+        const list = pools[cat];
+        if (!list || !list.length) return;
+        const rot = ((day * 7 + idx * 3 + ci) % list.length + list.length) % list.length;
+        picks.push({ cat, food: list[rot] });
+      });
+
+      // Default portions per category, scale main (protein/carb) to hit target
+      const portions = picks.map(pk => (CAT_PORTION[pk.cat] || { def: 100 }).def);
+      const mainIdx = picks.map((p, i) => SCALABLE_CATEGORIES.has(p.cat) ? i : -1).filter(i => i >= 0);
+      if (mainIdx.length) {
+        let sideKcal = 0, mainKcal = 0;
+        picks.forEach((p, i) => {
+          const k = portions[i] * p.food.k / 100;
+          if (mainIdx.includes(i)) mainKcal += k; else sideKcal += k;
+        });
+        const targetMainKcal = Math.max(0, mealKcal - sideKcal);
+        if (mainKcal > 0) {
+          const scale = targetMainKcal / mainKcal;
+          for (const i of mainIdx) {
+            const bounds = CAT_PORTION[picks[i].cat] || { min: 30, max: 400 };
+            let g = portions[i] * scale;
+            g = Math.max(bounds.min, Math.min(bounds.max, g));
+            portions[i] = Math.max(20, Math.round(g / 10) * 10);
+          }
+        }
+      }
+
+      const items = picks.map((pk, i) => {
+        const item = {
+          n: pk.food.n,
+          g: `${portions[i]}г`,
+          kcal_per_100:    pk.food.k,
+          protein_per_100: pk.food.p,
+          fat_per_100:     pk.food.f,
+          carbs_per_100:   pk.food.c,
+        };
+        if (pk.food.silpoSlug) {
+          item.silpoSlug       = pk.food.silpoSlug;
+          item.silpoPrice      = pk.food.silpoPrice      ?? null;
+          item.silpoPriceRatio = pk.food.silpoPriceRatio ?? null;
+        }
+        return item;
+      });
+
+      newDay[slot.key] = { kcal: mealKcal, items };
+    });
+
+    MENU[pid][day] = newDay;
+  }
 }
 
 // Call AI for one person, parse, write into MENU[pid]
