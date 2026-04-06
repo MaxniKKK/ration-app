@@ -352,6 +352,17 @@ body{background:var(--bg);color:var(--text);font-family:'Golos Text',sans-serif;
 .pcard-price{font-size:13px;color:var(--text);margin-bottom:16px;min-height:18px;}
 .pcard-src{font-size:11px;color:var(--muted);margin-bottom:16px;}
 .pcard-src a{color:var(--blue);text-decoration:none;}
+/* ── RECIPE DISPLAY (in product card and directory) ── */
+.pcard-recipe-section{margin-bottom:14px;padding-top:12px;border-top:1px solid var(--border);}
+.pcard-recipe-label{font-family:'Unbounded',sans-serif;font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px;}
+.pcard-recipe-list{list-style:none;padding:0;margin:0 0 8px;}
+.pcard-recipe-list li{padding:5px 0;font-size:12px;color:#ccc;border-bottom:1px solid rgba(255,255,255,.04);display:flex;align-items:center;gap:7px;}
+.pcard-recipe-list li:last-child{border-bottom:none;}
+.pcard-recipe-list li::before{content:'•';color:var(--accent);}
+.pcard-recipe-meta{font-size:11px;color:var(--muted);}
+.pcard-recipe-meta a{color:var(--blue);text-decoration:none;}
+.dir-recipe-icon{display:inline-block;margin-right:5px;}
+
 .pcard-tags-section{margin-bottom:14px;padding-top:12px;border-top:1px solid var(--border);}
 .pcard-tags-label{font-family:'Unbounded',sans-serif;font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px;}
 .pcard-tags-row{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px;}
@@ -431,6 +442,8 @@ body{background:var(--bg);color:var(--text);font-family:'Golos Text',sans-serif;
 .cf-icon{font-size:42px;margin-bottom:12px;line-height:1;}
 .cf-title{font-family:'Unbounded',sans-serif;font-size:15px;font-weight:800;margin-bottom:8px;}
 .cf-text{font-size:12px;color:var(--muted);line-height:1.55;margin-bottom:20px;}
+.cf-input{width:100%;background:#0d0d0d;border:1px solid var(--border);border-radius:9px;padding:11px 13px;color:var(--text);font-family:'Golos Text',sans-serif;font-size:13px;outline:none;margin-bottom:14px;box-sizing:border-box;}
+.cf-input:focus{border-color:var(--accent);}
 .cf-actions{display:flex;flex-direction:column;gap:8px;}
 .cf-btn{padding:13px;border-radius:12px;font-family:'Unbounded',sans-serif;font-size:11px;font-weight:700;cursor:pointer;border:none;text-align:center;}
 .cf-btn-primary{background:var(--accent);color:#000;}

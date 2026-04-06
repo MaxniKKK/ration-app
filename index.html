@@ -196,7 +196,8 @@
         <div class="dir-bar">
           <input class="dir-filter" id="dirFilter" placeholder="Фільтр..." oninput="renderFoodsDir()">
           <button class="dir-add-btn" onclick="startAddFood()">+ Додати</button>
-          <button class="dir-add-btn" style="background:var(--card2);color:var(--muted);border:1.5px solid var(--border)" onclick="toggleDirSelectMode()" id="btnDirSel">☑ Обрати</button>
+          <button class="dir-add-btn" style="background:rgba(255,107,53,.08);color:var(--accent2);border:1.5px solid rgba(255,107,53,.25)" onclick="promptKlopotenkoImport()" title="Імпортувати рецепт з klopotenko.com">🍳 Рецепт</button>
+          <button class="dir-add-btn" style="background:var(--card2);color:var(--muted);border:1.5px solid var(--border)" onclick="toggleDirSelectMode()" id="btnDirSel">☑</button>
           <button class="dir-add-btn" style="background:var(--card2);color:var(--muted);border:1.5px solid var(--border)" onclick="refetchAllFoods()" title="Заново завантажити всі продукти з Сільпо">🔄</button>
         </div>
         <!-- bulk action bar -->
@@ -367,6 +368,7 @@
           </div>
           <div class="pcard-price" id="pcardPrice"></div>
           <div class="pcard-src" id="pcardSrc"></div>
+          <div class="pcard-recipe-section" id="pcardRecipeSection" style="display:none"></div>
           <div class="pcard-tags-section" id="pcardTagsSection"></div>
           <div class="pcard-actions" id="pcardActions"></div>
         </div>
@@ -401,6 +403,7 @@
         <div class="cf-icon" id="cfIcon">❓</div>
         <div class="cf-title" id="cfTitle"></div>
         <div class="cf-text" id="cfText"></div>
+        <input class="cf-input" id="cfInput" style="display:none">
         <div class="cf-actions" id="cfActions"></div>
       </div>
     </div>

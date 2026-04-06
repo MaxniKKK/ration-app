@@ -2599,19 +2599,35 @@ window.deletePersonFromEditor = function() {
 // ═══════════════════════════════
 // CUSTOM CONFIRM MODAL
 // ═══════════════════════════════
-// showConfirm({icon, title, text, actions})
+// showConfirm({icon, title, text, input, actions})
+// input = { placeholder, value }  — when present, shows a text field;
+//                                    its value is passed to action.onClick
 // actions = [{ label, style:'primary'|'secondary'|'danger'|'cancel', onClick }]
-window.showConfirm = function({ icon, title, text, actions }) {
+window.showConfirm = function({ icon, title, text, input, actions }) {
   document.getElementById('cfIcon').textContent = icon || '❓';
   document.getElementById('cfTitle').textContent = title || '';
   document.getElementById('cfText').textContent = text || '';
+  const inpEl = document.getElementById('cfInput');
+  if (input) {
+    inpEl.style.display = '';
+    inpEl.placeholder = input.placeholder || '';
+    inpEl.value = input.value || '';
+    setTimeout(() => { inpEl.focus(); inpEl.select(); }, 120);
+  } else {
+    inpEl.style.display = 'none';
+    inpEl.value = '';
+  }
   const actEl = document.getElementById('cfActions');
   actEl.innerHTML = '';
   for (const a of (actions || [])) {
     const btn = document.createElement('button');
     btn.className = 'cf-btn cf-btn-' + (a.style || 'secondary');
     btn.textContent = a.label;
-    btn.onclick = () => { cfClose(); a.onClick?.(); };
+    btn.onclick = () => {
+      const val = input ? inpEl.value : undefined;
+      cfClose();
+      a.onClick?.(val);
+    };
     actEl.appendChild(btn);
   }
   document.getElementById('cfModal').classList.add('on');
@@ -2879,6 +2895,108 @@ async function fetchNutritionFromAI(name) {
   };
   if (!result.kcal) throw new Error('AI не зміг визначити калорійність для "' + name + '"');
   return result;
+}
+
+// ── KLOPOTENKO RECIPE IMPORT ─────────────────────────────────────────────
+// klopotenko.com publishes schema.org Recipe JSON-LD on every recipe page.
+// We fetch through a public CORS proxy (the site itself doesn't expose
+// Access-Control-Allow-Origin), parse the JSON-LD, and save as a FOODS
+// entry with type='recipe'.
+const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
+
+window.promptKlopotenkoImport = function() {
+  showConfirm({
+    icon: '🍳',
+    title: 'Імпортувати рецепт',
+    text: 'Встав посилання на рецепт з klopotenko.com — інгредієнти та КБЖУ підтягнуться автоматично.',
+    input: { placeholder: 'https://klopotenko.com/...' },
+    actions: [
+      { label: 'Імпортувати', style: 'primary', onClick: (url) => {
+        const u = (url || '').trim();
+        if (!u || !u.includes('klopotenko.com')) {
+          showToast('Потрібен URL з klopotenko.com', 'err');
+          return;
+        }
+        importKlopotenkoRecipe(u);
+      }},
+      { label: 'Скасувати', style: 'cancel' },
+    ],
+  });
+};
+
+async function importKlopotenkoRecipe(url) {
+  showAIBusy('🍳 Імпортуємо рецепт', 'Завантажуємо сторінку...');
+  try {
+    const proxied = CORS_PROXY + encodeURIComponent(url);
+    const r = await fetch(proxied);
+    if (!r.ok) throw new Error(`Не вдалось завантажити сторінку (HTTP ${r.status})`);
+    const html = await r.text();
+
+    // Find all <script type="application/ld+json"> blocks and pick the Recipe one
+    const blocks = [...html.matchAll(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g)];
+    let recipe = null;
+    for (const m of blocks) {
+      try {
+        const data = JSON.parse(m[1].trim());
+        if (Array.isArray(data)) {
+          const found = data.find(x => x['@type'] === 'Recipe' || (Array.isArray(x['@type']) && x['@type'].includes('Recipe')));
+          if (found) { recipe = found; break; }
+        } else if (data['@type'] === 'Recipe' || (Array.isArray(data['@type']) && data['@type'].includes('Recipe'))) {
+          recipe = data; break;
+        } else if (data['@graph']) {
+          const found = data['@graph'].find(x => x['@type'] === 'Recipe' || (Array.isArray(x['@type']) && x['@type'].includes('Recipe')));
+          if (found) { recipe = found; break; }
+        }
+      } catch (e) {}
+    }
+    if (!recipe) throw new Error('На сторінці немає Recipe schema. Перевір що це посилання саме на рецепт.');
+
+    const name = String(recipe.name || 'Без назви').trim();
+    const nutr = recipe.nutrition || {};
+    const parseNum = s => {
+      if (s == null) return 0;
+      const m = String(s).match(/[\d.,]+/);
+      return m ? parseFloat(m[0].replace(',', '.')) : 0;
+    };
+    const yieldRaw = recipe.recipeYield;
+    const servings = yieldRaw ? (parseInt(String(yieldRaw).match(/\d+/)?.[0]) || null) : null;
+    const image = Array.isArray(recipe.image) ? recipe.image[0] : recipe.image;
+
+    const food = {
+      name,
+      type: 'recipe',
+      kcal:    parseNum(nutr.calories),
+      protein: parseNum(nutr.proteinContent),
+      fat:     parseNum(nutr.fatContent),
+      carbs:   parseNum(nutr.carbohydrateContent),
+      ingredients: (recipe.recipeIngredient || []).map(s => String(s).trim()),
+      servings,
+      sourceUrl: url,
+      sourceImage: typeof image === 'string' ? image : (image?.url || null),
+      source: 'klopotenko',
+      tags: [],
+    };
+
+    if (!food.kcal) throw new Error('Рецепт не містить даних про калорійність — імпорт неможливий.');
+
+    const key = foodKey(name);
+    FOODS[key] = food;
+    if (db) await set(ref(db, 'racion/foods/' + key), food);
+
+    hideAIBusy();
+    showToast('Рецепт імпортовано ✓');
+    renderFoodsDir();
+    setTimeout(() => openPCard(key), 200);
+  } catch (e) {
+    hideAIBusy();
+    console.error('[klopotenko] import failed:', e);
+    showConfirm({
+      icon: '⚠️',
+      title: 'Помилка імпорту',
+      text: e.message || String(e),
+      actions: [{ label: 'Зрозуміло', style: 'primary' }],
+    });
+  }
 }
 
 // Tiny progress overlay helpers used by single-shot AI calls
