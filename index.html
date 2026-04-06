@@ -527,6 +527,7 @@
         <div class="dir-bar">
           <input class="dir-filter" id="dirFilter" placeholder="Фільтр..." oninput="renderFoodsDir()">
           <button class="dir-add-btn" onclick="startAddFood()">+ Додати</button>
+          <button class="dir-add-btn" style="background:var(--card2);color:var(--muted);border:1.5px solid var(--border)" onclick="autoFillWeek(false)" title="Оновити КБЖУ всіх продуктів з Сільпо">🔄</button>
         </div>
         <div class="dir-list" id="dirList"></div>
       </div>
@@ -1457,6 +1458,9 @@
           onValue(foodsRef, (snap) => {
             const val = snap.val();
             if (val) FOODS = val;
+            // Refresh directory if it's open
+            const searchScreen = document.getElementById('screen-search');
+            if (searchScreen?.classList.contains('active')) renderFoodsDir();
           });
           // Show app
           document.getElementById("loader").classList.add("hide");
@@ -2281,6 +2285,7 @@
         if (db) set(ref(db, 'racion/menu'), MENU).then(() => setSyncStatus('ok', 'Збережено ✓')).catch(() => {});
         renderMeals();
         renderTotals();
+        renderFoodsDir();
         setTimeout(() => overlay.classList.remove('on'), 2000);
       }
 
