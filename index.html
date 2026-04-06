@@ -89,6 +89,9 @@
       <div class="nav-tab" onclick="showScreen('search')" id="nt-search">
         <span class="ti">🔍</span><span>Продукти</span>
       </div>
+      <div class="nav-tab" onclick="showScreen('profile')" id="nt-profile">
+        <span class="ti">⚙️</span><span>Профіль</span>
+      </div>
     </div>
 
     <!-- MENU SCREEN -->
@@ -236,6 +239,34 @@
               <div class="exch" onclick="qs('йогурт грецький')">🫙 Йогурт</div>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PROFILE SCREEN -->
+    <div class="screen" id="screen-profile" style="display: none">
+      <div class="profile-header">
+        <div class="ph-title">⚙️ Профіль</div>
+        <div class="ph-sub">Люди, цілі, прийоми їжі, заборонені продукти</div>
+      </div>
+      <div class="people-bar">
+        <button class="btn-add-person" onclick="addPerson()">+ Додати людину</button>
+      </div>
+      <div class="people-list" id="peopleList"></div>
+    </div>
+
+    <!-- PERSON EDITOR MODAL -->
+    <div class="pe-modal" id="peModal" onclick="closePersonEditor()">
+      <div class="pe-sheet" onclick="event.stopPropagation()">
+        <div class="pe-drag"></div>
+        <div class="pe-head">
+          <div class="pe-title" id="peTitle">Профіль</div>
+          <button class="pe-close" onclick="closePersonEditor()">×</button>
+        </div>
+        <div class="pe-body" id="peBody"></div>
+        <div class="pe-footer">
+          <button class="pe-del" id="peDelBtn" onclick="deletePersonFromEditor()">🗑 Видалити</button>
+          <button class="pe-save" onclick="savePersonFromEditor()">☁️ Зберегти</button>
         </div>
       </div>
     </div>

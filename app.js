@@ -442,6 +442,7 @@ window.showScreen = function (s) {
   document.getElementById("nt-" + s).classList.add("active");
   if (s === "diary") renderCal();
   if (s === "search") renderFoodsDir();
+  if (s === "profile") renderPeople();
 };
 
 // ═══════════════════════════════
@@ -1760,6 +1761,247 @@ window.showFood = async function (i) {
 };
 window.closeMo = () =>
   document.getElementById("mo").classList.remove("on");
+
+// ═══════════════════════════════
+// PROFILE / PEOPLE EDITOR
+// ═══════════════════════════════
+let _peEditingId = null;       // pid being edited (or null for new)
+let _peDraft = null;           // working copy of person being edited
+
+window.renderPeople = function() {
+  const list = document.getElementById('peopleList');
+  if (!list) return;
+  const ids = getPeopleIds();
+  if (!ids.length) {
+    list.innerHTML = `<div style="text-align:center;padding:40px 20px;color:var(--muted);font-size:12px">Жодної людини. Натисни <strong>+ Додати</strong>.</div>`;
+    return;
+  }
+  list.innerHTML = ids.map(pid => {
+    const p = getPerson(pid);
+    const t = p?.targets || {};
+    const meta = [
+      `${t.kcal || '—'} ккал`,
+      p?.age ? `${p.age} р.` : null,
+      p?.weight ? `${p.weight} кг` : null,
+      `${(p?.meals || []).length} прийомів`,
+    ].filter(Boolean).join(' · ');
+    return `<div class="person-card" onclick="openPersonEditor('${pid}')">
+      <div class="person-dot" style="background:${p?.color || '#888'}"></div>
+      <div class="person-info">
+        <div class="person-name">${escapeHtml(p?.name || pid)}</div>
+        <div class="person-meta">${meta}</div>
+      </div>
+      <div class="person-arr">›</div>
+    </div>`;
+  }).join('');
+};
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+window.addPerson = function() {
+  const id = 'p_' + Date.now().toString(36);
+  const order = Math.max(0, ...Object.values(PEOPLE).map(p => p.order || 0)) + 1;
+  PEOPLE[id] = {
+    id,
+    name: 'Нова людина',
+    color: '#7dd3fc',
+    age: null,
+    weight: null,
+    targets: { kcal: 2000, protein: 150, fat: 65, carbs: 200 },
+    forbidden: [],
+    meals: JSON.parse(JSON.stringify(DEFAULT_MEALS)),
+    waterTarget: '2 л',
+    order,
+  };
+  if (db) set(ref(db, 'racion/people/' + id), PEOPLE[id]).catch(() => {});
+  // Seed empty MENU days for the new person
+  applyPlanTemplate();
+  if (db) set(ref(db, 'racion/menu'), MENU).catch(() => {});
+  renderPeople();
+  openPersonEditor(id);
+};
+
+window.openPersonEditor = function(pid) {
+  const p = getPerson(pid);
+  if (!p) return;
+  _peEditingId = pid;
+  // Deep copy so edits can be cancelled
+  _peDraft = JSON.parse(JSON.stringify(p));
+  // Ensure required nested structures exist
+  _peDraft.targets   = _peDraft.targets   || { kcal: 2000, protein: 150, fat: 65, carbs: 200 };
+  _peDraft.forbidden = _peDraft.forbidden || [];
+  _peDraft.meals     = _peDraft.meals     || JSON.parse(JSON.stringify(DEFAULT_MEALS));
+  document.getElementById('peTitle').textContent = `Профіль · ${p.name}`;
+  // Disable delete if only 1 person
+  document.getElementById('peDelBtn').disabled = getPeopleIds().length <= 1;
+  renderPersonEditorBody();
+  document.getElementById('peModal').classList.add('on');
+};
+
+function renderPersonEditorBody() {
+  const d = _peDraft;
+  const body = document.getElementById('peBody');
+  body.innerHTML = `
+    <div class="pe-section">
+      <div class="pe-sect-title">Основне</div>
+      <div class="pe-row">
+        <input type="color" class="pe-color-box" id="pe_color" value="${d.color || '#c8f54a'}">
+        <input class="pe-inp" id="pe_name" placeholder="Ім'я" value="${escapeHtml(d.name || '')}">
+      </div>
+      <div class="pe-row">
+        <span class="pe-lbl">Вік</span>
+        <input class="pe-inp sm" id="pe_age" type="number" value="${d.age ?? ''}" placeholder="—">
+        <span class="pe-lbl">Вага кг</span>
+        <input class="pe-inp sm" id="pe_weight" type="number" value="${d.weight ?? ''}" placeholder="—">
+      </div>
+      <div class="pe-row">
+        <span class="pe-lbl">Вода</span>
+        <input class="pe-inp" id="pe_water" value="${escapeHtml(d.waterTarget || '')}" placeholder="напр. 2.5 л">
+      </div>
+    </div>
+
+    <div class="pe-section">
+      <div class="pe-sect-title">Денна ціль КБЖУ</div>
+      <div class="pe-grid4">
+        <div class="pe-cell"><input class="pe-cell-inp" id="pe_t_k" type="number" value="${d.targets.kcal || ''}"><div class="pe-cell-lbl">ккал</div></div>
+        <div class="pe-cell"><input class="pe-cell-inp" id="pe_t_p" type="number" value="${d.targets.protein || ''}"><div class="pe-cell-lbl">білок г</div></div>
+        <div class="pe-cell"><input class="pe-cell-inp" id="pe_t_f" type="number" value="${d.targets.fat || ''}"><div class="pe-cell-lbl">жири г</div></div>
+        <div class="pe-cell"><input class="pe-cell-inp" id="pe_t_c" type="number" value="${d.targets.carbs || ''}"><div class="pe-cell-lbl">вуглев г</div></div>
+      </div>
+    </div>
+
+    <div class="pe-section">
+      <div class="pe-sect-title">Заборонені продукти</div>
+      <div class="pe-tags" id="pe_forbidden_tags">${renderForbiddenTags()}</div>
+      <div class="pe-tag-add">
+        <input id="pe_forbidden_inp" placeholder="Напр. лосось" onkeydown="if(event.key==='Enter')addForbiddenTag()">
+        <button onclick="addForbiddenTag()">+ Додати</button>
+      </div>
+    </div>
+
+    <div class="pe-section">
+      <div class="pe-sect-title">Прийоми їжі</div>
+      <div id="pe_meals_list">${renderMealsEditor()}</div>
+      <button class="pe-add-meal" onclick="addMealSlot()">+ Додати прийом</button>
+    </div>
+  `;
+}
+
+function renderForbiddenTags() {
+  if (!_peDraft.forbidden.length) return `<span style="font-size:11px;color:var(--muted)">Немає заборонених</span>`;
+  return _peDraft.forbidden.map((f, i) =>
+    `<span class="pe-tag">${escapeHtml(f)}<span class="pe-tag-x" onclick="removeForbiddenTag(${i})">×</span></span>`
+  ).join('');
+}
+
+function renderMealsEditor() {
+  return _peDraft.meals.map((m, i) => `
+    <div class="pe-meal-row">
+      <input class="pe-meal-ico" value="${escapeHtml(m.ico || '')}" oninput="_peDraft.meals[${i}].ico=this.value" maxlength="2">
+      <input class="pe-meal-name" value="${escapeHtml(m.name || '')}" oninput="_peDraft.meals[${i}].name=this.value" placeholder="Назва">
+      <input class="pe-meal-time" value="${escapeHtml(m.time || '')}" oninput="_peDraft.meals[${i}].time=this.value" placeholder="час">
+      <button class="pe-meal-del" onclick="removeMealSlot(${i})" ${_peDraft.meals.length <= 1 ? 'disabled style="opacity:.4"' : ''}>✕</button>
+    </div>
+  `).join('');
+}
+
+window.addForbiddenTag = function() {
+  const inp = document.getElementById('pe_forbidden_inp');
+  const v = inp.value.trim();
+  if (!v) return;
+  if (!_peDraft.forbidden.some(f => f.toLowerCase() === v.toLowerCase())) {
+    _peDraft.forbidden.push(v);
+  }
+  inp.value = '';
+  document.getElementById('pe_forbidden_tags').innerHTML = renderForbiddenTags();
+  inp.focus();
+};
+
+window.removeForbiddenTag = function(i) {
+  _peDraft.forbidden.splice(i, 1);
+  document.getElementById('pe_forbidden_tags').innerHTML = renderForbiddenTags();
+};
+
+window.addMealSlot = function() {
+  // Generate unique key
+  let n = 1;
+  let key = `meal${n}`;
+  const existing = new Set(_peDraft.meals.map(m => m.key));
+  while (existing.has(key)) { n++; key = `meal${n}`; }
+  _peDraft.meals.push({ key, name: 'Новий прийом', time: '12:00', ico: '🍴', cls: 'is' });
+  document.getElementById('pe_meals_list').innerHTML = renderMealsEditor();
+};
+
+window.removeMealSlot = function(i) {
+  if (_peDraft.meals.length <= 1) return;
+  _peDraft.meals.splice(i, 1);
+  document.getElementById('pe_meals_list').innerHTML = renderMealsEditor();
+};
+
+window.closePersonEditor = function() {
+  document.getElementById('peModal').classList.remove('on');
+  _peEditingId = null;
+  _peDraft = null;
+};
+
+window.savePersonFromEditor = async function() {
+  if (!_peDraft || !_peEditingId) return;
+  // Read flat fields from DOM
+  const get = id => document.getElementById(id);
+  _peDraft.name        = get('pe_name').value.trim() || 'Без імені';
+  _peDraft.color       = get('pe_color').value || '#c8f54a';
+  _peDraft.age         = parseInt(get('pe_age').value)    || null;
+  _peDraft.weight      = parseFloat(get('pe_weight').value) || null;
+  _peDraft.waterTarget = get('pe_water').value.trim();
+  _peDraft.targets = {
+    kcal:    parseInt(get('pe_t_k').value)   || 0,
+    protein: parseInt(get('pe_t_p').value)   || 0,
+    fat:     parseInt(get('pe_t_f').value)   || 0,
+    carbs:   parseInt(get('pe_t_c').value)   || 0,
+  };
+  // meals already updated via inline oninput handlers
+  PEOPLE[_peEditingId] = _peDraft;
+  if (db) {
+    try { await set(ref(db, 'racion/people/' + _peEditingId), _peDraft); }
+    catch(e) { showToast('Помилка збереження', 'err'); return; }
+  }
+  closePersonEditor();
+  renderPeople();
+  // Re-render menu page in case current person was edited
+  renderMenuPage();
+  showToast('Збережено ✓');
+};
+
+window.deletePersonFromEditor = async function() {
+  if (!_peEditingId) return;
+  if (getPeopleIds().length <= 1) { showToast('Має лишитись хоча б 1 людина'); return; }
+  const name = _peDraft?.name || _peEditingId;
+  if (!confirm(`Видалити "${name}"?\n\nВсе її меню та записи в щоденнику теж видаляться.`)) return;
+  const pid = _peEditingId;
+  delete PEOPLE[pid];
+  delete MENU[pid];
+  // Strip from DIARY entries
+  for (const k of Object.keys(DIARY)) {
+    if (DIARY[k]?.[pid]) delete DIARY[k][pid];
+  }
+  if (db) {
+    try {
+      await set(ref(db, 'racion/people/' + pid), null);
+      await set(ref(db, 'racion/menu/'   + pid), null);
+      await set(ref(db, 'racion/diary'), DIARY);
+    } catch(e) {}
+  }
+  // If we just deleted the active person, switch to the first remaining one
+  if (person === pid) {
+    person = getPeopleIds()[0];
+  }
+  closePersonEditor();
+  renderPeople();
+  renderMenuPage();
+  showToast('Видалено');
+};
 
 // ═══════════════════════════════
 // TOAST
