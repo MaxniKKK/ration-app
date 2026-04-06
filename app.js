@@ -1317,7 +1317,7 @@ window.openPCard = function(key) {
     // ── EDIT MODE ──
     ingsEl.innerHTML = `
       <div class="pcard-ings-label">
-        Інгредієнти (редагування)
+        <span>Інгредієнти (редагування)</span>
         <button class="pcard-ings-edit-btn" onclick="event.stopPropagation();toggleRecipeIngsEdit('${key}')">Скасувати</button>
       </div>
       <ul class="pcard-ings-list">
@@ -1348,7 +1348,7 @@ window.openPCard = function(key) {
     const stapleCount   = linked.filter(l => l.kind === 'staple').length;
     ingsEl.innerHTML = `
       <div class="pcard-ings-label">
-        Інгредієнти${food.servings ? ` · на ${food.servings} порц.` : ''}
+        <span>Інгредієнти${food.servings ? ` · на ${food.servings} порц.` : ''}</span>
         <button class="pcard-ings-edit-btn" onclick="event.stopPropagation();toggleRecipeIngsEdit('${key}')">✏️ Редагувати</button>
       </div>
       <ul class="pcard-ings-list">

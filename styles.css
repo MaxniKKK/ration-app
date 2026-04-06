@@ -396,7 +396,9 @@ body{background:var(--bg);color:var(--text);font-family:'Golos Text',sans-serif;
 
 /* ── RECIPE INGREDIENTS LIST in product card ── */
 .pcard-ings-section{margin-bottom:14px;padding-top:12px;border-top:1px solid var(--border);}
-.pcard-ings-label{font-family:'Unbounded',sans-serif;font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px;}
+.pcard-ings-label{font-family:'Unbounded',sans-serif;font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px;display:flex;align-items:center;gap:8px;min-height:24px;}
+.pcard-ings-label>span:first-child,.pcard-ings-label{}
+.pcard-ings-label .pcard-ings-edit-btn{margin-left:auto;}
 .pcard-ings-list{list-style:none;padding:0;margin:0;}
 .pcard-ings-list li{display:flex;align-items:center;gap:8px;padding:7px 0;font-size:12px;border-bottom:1px solid rgba(255,255,255,.04);}
 .pcard-ings-list li:last-child{border-bottom:none;}
@@ -407,7 +409,7 @@ body{background:var(--bg);color:var(--text);font-family:'Golos Text',sans-serif;
 .pcard-ing-icon.optional{color:#fbbf24;}
 .pcard-ing-link-btn{font-size:9px;padding:2px 6px;background:var(--card2);border:1px solid var(--border);border-radius:6px;color:var(--blue);cursor:pointer;flex-shrink:0;font-family:'Unbounded',sans-serif;}
 .pcard-ing-link-btn:active{background:var(--card);}
-.pcard-ings-edit-btn{float:right;font-size:9px;padding:3px 8px;background:var(--card2);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-family:'Unbounded',sans-serif;font-weight:700;text-transform:none;letter-spacing:0;}
+.pcard-ings-edit-btn{font-size:9px;padding:4px 9px;background:var(--card2);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-family:'Unbounded',sans-serif;font-weight:700;text-transform:none;letter-spacing:0;flex-shrink:0;}
 .pcard-ings-edit-btn:active{background:var(--card);}
 .pcard-ing-edit-inp{flex:1;background:#0d0d0d;border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:var(--text);font-family:'Golos Text',sans-serif;font-size:12px;outline:none;min-width:0;}
 .pcard-ing-edit-inp:focus{border-color:var(--accent);}
