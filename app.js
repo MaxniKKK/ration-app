@@ -107,35 +107,41 @@ const FOOD_CATEGORIES = {
 // Кожен інгредієнт: n=назва (узгоджена з FOOD_CATEGORIES для пошуку Сільпо),
 // k=приблизна калорійність на 100г (використовується тільки для розрахунку
 // порцій до моменту коли autoFillWeek підтягне точні дані з Сільпо).
-// Each ingredient has full per-100g nutrition (built-in "AI knowledge").
-// k=kcal, p=protein, f=fat, c=carbs. These values seed FOODS for any
-// ingredient the generator picks; later autoFillWeek may overwrite them
-// with exact data fetched from Silpo.
+// Each ingredient has full per-100g nutrition + realistic portion bounds.
+// k=kcal, p=protein, f=fat, c=carbs (per 100g)
+// def=default serving in grams, min/max=portion bounds (нікого не змусиш зʼїсти 1.4 кг помідорів)
+// These bounds drive sane portion sizing — only "main" categories
+// (protein, carb) get scaled to hit the meal's kcal target; dairy/fruit/veggie
+// stay close to their default serving so the day looks like a real meal.
 const INGREDIENT_POOL = {
   protein: [
-    { n: 'Куряче філе',          k: 110, p: 23,  f: 1.2, c: 0   },
-    { n: 'Яйця курячі',          k: 155, p: 13,  f: 11,  c: 1.1 },
-    { n: 'Тунець консервований', k: 116, p: 26,  f: 1,   c: 0   },
+    { n: 'Куряче філе',          k: 110, p: 23,  f: 1.2, c: 0,   def: 150, min: 80,  max: 250 },
+    { n: 'Яйця курячі',          k: 155, p: 13,  f: 11,  c: 1.1, def: 110, min: 55,  max: 220 },
+    { n: 'Тунець консервований', k: 116, p: 26,  f: 1,   c: 0,   def: 150, min: 80,  max: 250 },
   ],
   dairy: [
-    { n: 'Йогурт грецький', k: 60, p: 10, f: 0.4, c: 4 },
-    { n: 'Кефір 1%',        k: 40, p: 3,  f: 1,   c: 4 },
+    { n: 'Йогурт грецький', k: 60, p: 10, f: 0.4, c: 4, def: 150, min: 100, max: 250 },
+    { n: 'Кефір 1%',        k: 40, p: 3,  f: 1,   c: 4, def: 250, min: 150, max: 400 },
   ],
   carb: [
-    { n: 'Гречка',   k: 343, p: 13, f: 3.4, c: 62 },
-    { n: 'Рис',      k: 350, p: 7,  f: 1,   c: 78 },
-    { n: 'Картопля', k: 77,  p: 2,  f: 0.1, c: 17 },
+    { n: 'Гречка',   k: 343, p: 13, f: 3.4, c: 62, def: 100, min: 50,  max: 180 },
+    { n: 'Рис',      k: 350, p: 7,  f: 1,   c: 78, def: 100, min: 50,  max: 180 },
+    { n: 'Картопля', k: 77,  p: 2,  f: 0.1, c: 17, def: 200, min: 100, max: 350 },
   ],
   fruit: [
-    { n: 'Банан',    k: 89, p: 1.1, f: 0.3, c: 23 },
-    { n: 'Яблука',   k: 52, p: 0.3, f: 0.2, c: 14 },
-    { n: 'Апельсин', k: 47, p: 0.9, f: 0.1, c: 12 },
+    { n: 'Банан',    k: 89, p: 1.1, f: 0.3, c: 23, def: 120, min: 80,  max: 240 },
+    { n: 'Яблука',   k: 52, p: 0.3, f: 0.2, c: 14, def: 150, min: 100, max: 250 },
+    { n: 'Апельсин', k: 47, p: 0.9, f: 0.1, c: 12, def: 150, min: 100, max: 250 },
   ],
   veggie: [
-    { n: 'Огірок',  k: 16, p: 0.7, f: 0.1, c: 3.6 },
-    { n: 'Помідор', k: 18, p: 0.9, f: 0.2, c: 3.9 },
+    { n: 'Огірок',  k: 16, p: 0.7, f: 0.1, c: 3.6, def: 100, min: 50, max: 200 },
+    { n: 'Помідор', k: 18, p: 0.9, f: 0.2, c: 3.9, def: 100, min: 50, max: 200 },
   ],
 };
+
+// Categories that scale freely with meal kcal target (high-density "main" food).
+// Other categories (dairy/fruit/veggie) stay near their default portion.
+const SCALABLE_CATEGORIES = new Set(['protein', 'carb']);
 
 // Lookup an ingredient by name across all categories
 function findInPool(name) {
@@ -263,40 +269,67 @@ function generateMenuForPerson(pid) {
       const type = types[idx];
       const recipe = MEAL_RECIPE[type] || MEAL_RECIPE.snack;
       const mealKcal = slotKcals[idx];
-      const perCategoryKcal = mealKcal / Math.max(1, recipe.length);
 
-      const items = [];
+      // Pick ingredients for this meal
+      const picks = [];
       recipe.forEach((cat, ci) => {
         const ing = pickIngredient(cat, day, idx * 5 + ci, forbidden);
         if (!ing) return;
-        // Make sure FOODS has this ingredient — seeds from POOL with full
-        // built-in nutrition, so the directory is always 100% populated.
         ensureFoodInDirectory(ing.n);
         // Use FOODS data if present (more accurate after Silpo enrichment),
         // otherwise fall back to POOL.
         const nutr = getIngredientNutr(ing.n) || { kcal: ing.k, protein: 0, fat: 0, carbs: 0 };
-        // Convert kcal share → grams, snap to nearest 10g, floor at 20g
-        const grams = Math.max(20, Math.round((perCategoryKcal * 100 / nutr.kcal) / 10) * 10);
-        // Build item with full per-100g nutrition embedded — no item ever
-        // ends up without КБЖУ, even if Silpo lookup later fails.
+        picks.push({ ing, cat, nutr });
+      });
+
+      // Step 1: assign default portions (realistic single servings).
+      // Use POOL bounds when available; otherwise fall back to a 100g default.
+      const portions = picks.map(pk => pk.ing.def || 100);
+
+      // Step 2: scale only "main" categories (protein/carb) to hit the meal's
+      // kcal target. Sides (dairy/fruit/veggie) stay at default — that's what
+      // prevents 1.4 kg of tomatoes for dinner.
+      const mainIdx = picks.map((p, i) => SCALABLE_CATEGORIES.has(p.cat) ? i : -1).filter(i => i >= 0);
+      if (mainIdx.length) {
+        // Compute kcal contributed by sides (fixed) and current main contribution
+        let sideKcal = 0, mainKcal = 0;
+        picks.forEach((p, i) => {
+          const k = portions[i] * (p.nutr.kcal || p.ing.k) / 100;
+          if (mainIdx.includes(i)) mainKcal += k; else sideKcal += k;
+        });
+        const targetMainKcal = Math.max(0, mealKcal - sideKcal);
+        // Distribute targetMainKcal across main items proportionally to their
+        // current share, then clamp each to [min, max].
+        if (mainKcal > 0) {
+          const scale = targetMainKcal / mainKcal;
+          for (const i of mainIdx) {
+            const ing = picks[i].ing;
+            const k = (picks[i].nutr.kcal || ing.k);
+            let g = portions[i] * scale;
+            // Clamp to realistic bounds; snap to nearest 10g; absolute floor 20g
+            g = Math.max(ing.min || 30, Math.min(ing.max || 400, g));
+            portions[i] = Math.max(20, Math.round(g / 10) * 10);
+          }
+        }
+      }
+
+      // Step 3: build items list with embedded nutrition + Silpo link if any
+      const items = picks.map((pk, i) => {
         const item = {
-          n: ing.n,
-          g: `${grams}г`,
-          kcal_per_100:    nutr.kcal,
-          protein_per_100: nutr.protein,
-          fat_per_100:     nutr.fat,
-          carbs_per_100:   nutr.carbs,
+          n: pk.ing.n,
+          g: `${portions[i]}г`,
+          kcal_per_100:    pk.nutr.kcal,
+          protein_per_100: pk.nutr.protein,
+          fat_per_100:     pk.nutr.fat,
+          carbs_per_100:   pk.nutr.carbs,
         };
-        // If this ingredient is already linked to a Silpo product in FOODS,
-        // attach the slug/price so the menu UI shows ↗ Сільпо right away.
-        // Coalesce missing fields to null — Firebase rejects undefined.
-        const food = FOODS[foodKey(ing.n)];
+        const food = FOODS[foodKey(pk.ing.n)];
         if (food?.silpoSlug) {
           item.silpoSlug       = food.silpoSlug;
           item.silpoPrice      = food.silpoPrice      ?? null;
           item.silpoPriceRatio = food.silpoPriceRatio ?? null;
         }
-        items.push(item);
+        return item;
       });
 
       newDay[slot.key] = { kcal: mealKcal, items };
@@ -967,6 +1000,7 @@ window.doMSearch = async function() {
 
 // Router — picks behavior based on whether we're in remap or edit-row mode
 window.selectMsItem = function(idx) {
+  if (_remapKey === '__newfood__') return applyNewFoodSilpo(idx);
   if (_remapKey) return applyRemap(idx);
   return selectFoodForEdit(idx);
 };
@@ -1129,6 +1163,7 @@ window.startEditFood = function(key) {
 
 window.cancelEditFood = function() {
   _editingFoodKey = null;
+  _newFoodSilpoData = null;
   renderFoodsDir();
 };
 
@@ -1243,7 +1278,8 @@ window.openPCard = function(key) {
     ? `<a class="pcard-open-a" href="https://silpo.ua/product/${food.silpoSlug}" target="_blank" onclick="event.stopPropagation()">Відкрити в Сільпо ↗</a>`
     : `<div style="flex:1"></div>`;
   actEl.innerHTML = `${openBtn}
-    <button class="pcard-edit-btn" title="Змінити продукт у Сільпо" onclick="openRemap('${key}')">🔗</button>
+    <button class="pcard-edit-btn" title="Заповнити КБЖУ через AI (вбудовані дані)" onclick="applyAIFillFood('${key}')">🤖</button>
+    <button class="pcard-edit-btn" title="Привʼязати до продукту в Сільпо" onclick="openRemap('${key}')">🔗</button>
     <button class="pcard-edit-btn" title="Редагувати КБЖУ" onclick="closePCard();showScreen('search');showFdTab('dir');startEditFood('${key}')">✏️</button>
     <button class="pcard-del-btn" title="Видалити" onclick="if(confirm('Видалити?')){deleteFoodItem('${key}');closePCard();}">🗑</button>`;
 
@@ -1256,6 +1292,30 @@ window.closePCard = function() {
 };
 
 // ─── MANUAL REMAP: pick a different Silpo product for a directory entry ──
+// Fill КБЖУ for a directory entry from the built-in INGREDIENT_POOL ("AI knowledge").
+// Does not touch silpoSlug if already linked — only updates the nutrition fields.
+window.applyAIFillFood = function(key) {
+  const food = FOODS[key];
+  if (!food) return;
+  const known = findInPool(food.name);
+  if (!known) {
+    showToast('AI не має даних для "' + food.name + '"', 'err');
+    return;
+  }
+  FOODS[key] = {
+    ...food,
+    kcal:    known.k,
+    protein: known.p ?? 0,
+    fat:     known.f ?? 0,
+    carbs:   known.c ?? 0,
+  };
+  if (db) set(ref(db, 'racion/foods/' + key), FOODS[key]).catch(() => {});
+  renderFoodsDir();
+  showToast('КБЖУ заповнено з AI ✓');
+  // Re-open card with fresh data
+  setTimeout(() => openPCard(key), 150);
+};
+
 window.openRemap = function(key) {
   _remapKey = key;
   _msCtx = null;
@@ -1396,11 +1456,23 @@ window.saveFoodItem = function(originalKey) {
     delete FOODS[originalKey];
     if (db) set(ref(db, 'racion/foods/' + originalKey), null).catch(() => {});
   }
-  // Manual edit fully detaches Silpo binding — link becomes inactive
-  FOODS[newKey] = {
-    name, kcal, protein, fat, carbs,
-    source: 'manual',
-  };
+  // For NEW entries created via the add form: if user picked Silpo or AI
+  // via the prefill buttons, persist the source accordingly. Otherwise,
+  // editing an existing entry → fully detaches Silpo binding (manual override).
+  if (originalKey === '__new__' && _newFoodSilpoData) {
+    FOODS[newKey] = {
+      name, kcal, protein, fat, carbs,
+      source: 'silpo',
+      ..._newFoodSilpoData,
+    };
+  } else if (originalKey === '__new__' && findInPool(name)) {
+    // New entry where AI prefill was used (or matches POOL by name)
+    FOODS[newKey] = { name, kcal, protein, fat, carbs, source: 'auto' };
+  } else {
+    // Existing entry edited manually → drops any Silpo link
+    FOODS[newKey] = { name, kcal, protein, fat, carbs, source: 'manual' };
+  }
+  _newFoodSilpoData = null;
   if (db) set(ref(db, 'racion/foods/' + newKey), FOODS[newKey]).catch(() => {});
   _editingFoodKey = null;
   renderFoodsDir();
@@ -1418,11 +1490,17 @@ window.deleteFoodItem = function(key) {
 
 window.startAddFood = function() {
   _editingFoodKey = '__new__';
+  _newFoodSilpoData = null;
   const list = document.getElementById('dirList');
   const div = document.createElement('div');
   div.id = 'dir-add-row';
   div.innerHTML = `<div class="dir-edit-row">
     <input class="dir-edit-name" id="de_name" placeholder="Назва продукту">
+    <div style="display:flex;gap:6px;margin:6px 0 10px;">
+      <button class="dir-cancel-btn" style="flex:1" onclick="prefillNewFoodFromAI()" title="Заповнити з вбудованих AI-даних">🤖 AI</button>
+      <button class="dir-cancel-btn" style="flex:1" onclick="prefillNewFoodFromSilpo()" title="Знайти продукт в Сільпо і привʼязати">🔗 Сільпо</button>
+    </div>
+    <div id="de_silpo_info" style="font-size:10px;color:var(--blue);margin-bottom:6px;display:none"></div>
     <div class="dir-edit-grid">
       <div class="dir-edit-cell"><input class="dir-edit-inp" id="de_kcal" type="number" placeholder="0"><div class="dir-edit-lbl">Ккал</div></div>
       <div class="dir-edit-cell"><input class="dir-edit-inp" id="de_prot" type="number" step="0.1" placeholder="0"><div class="dir-edit-lbl">Білок г</div></div>
@@ -1436,6 +1514,76 @@ window.startAddFood = function() {
   </div>`;
   list.insertBefore(div, list.firstChild);
   setTimeout(() => document.getElementById('de_name')?.focus(), 50);
+};
+
+// Holds Silpo product data picked via 🔗 in the add form, so saveFoodItem
+// can attach silpoSlug/icon/title when persisting the new entry.
+let _newFoodSilpoData = null;
+
+window.prefillNewFoodFromAI = function() {
+  const name = document.getElementById('de_name')?.value.trim();
+  if (!name) { showToast('Спочатку введи назву продукту'); return; }
+  const known = findInPool(name);
+  if (!known) { showToast('AI не має даних для "' + name + '"', 'err'); return; }
+  document.getElementById('de_kcal').value = known.k;
+  document.getElementById('de_prot').value = known.p ?? 0;
+  document.getElementById('de_fat').value  = known.f ?? 0;
+  document.getElementById('de_carb').value = known.c ?? 0;
+  _newFoodSilpoData = null;
+  document.getElementById('de_silpo_info').style.display = 'none';
+  showToast('Заповнено з AI ✓');
+};
+
+window.prefillNewFoodFromSilpo = function() {
+  const name = document.getElementById('de_name')?.value.trim();
+  if (!name) { showToast('Спочатку введи назву продукту'); return; }
+  // Reuse the existing search modal but with a special "new food" context
+  _remapKey = '__newfood__';
+  _msCtx = null;
+  document.getElementById('msInp').value = name;
+  document.getElementById('msRes').innerHTML = `<div style="text-align:center;padding:20px;color:var(--muted);font-size:12px">Натисни Шукати щоб знайти продукт у Сільпо</div>`;
+  document.getElementById('msearch').classList.add('on');
+  setTimeout(() => { const i = document.getElementById('msInp'); i.focus(); i.select(); }, 120);
+};
+
+// Called from selectMsItem when _remapKey === '__newfood__' — pick a Silpo
+// product, fetch its nutrition, fill the new-food form, store data for save.
+window.applyNewFoodSilpo = async function(idx) {
+  const p = _msFoods[idx];
+  const res = document.getElementById('msRes');
+  const el = res.querySelectorAll('.msd-item')[idx];
+  if (el) {
+    const mac = el.querySelector('.msd-imac');
+    if (mac) mac.innerHTML = '<span style="color:var(--accent)">Завантажуємо КБЖУ...</span>';
+  }
+  let nutr = null;
+  try {
+    const r = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products/${p.slug}`, { headers: { accept: 'application/json' } });
+    const detail = await r.json();
+    nutr = parseSilpoNutr(detail.attributeGroups);
+  } catch(e) {}
+  // Stash Silpo metadata for saveFoodItem to read
+  _newFoodSilpoData = {
+    silpoTitle:      p.title,
+    silpoSlug:       p.slug,
+    silpoIcon:       p.icon || null,
+    silpoPrice:      p.displayPrice ?? null,
+    silpoPriceRatio: p.displayRatio ?? null,
+  };
+  if (nutr) {
+    document.getElementById('de_kcal').value = nutr.kcal    ?? 0;
+    document.getElementById('de_prot').value = nutr.protein ?? 0;
+    document.getElementById('de_fat').value  = nutr.fat     ?? 0;
+    document.getElementById('de_carb').value = nutr.carbs   ?? 0;
+  }
+  const info = document.getElementById('de_silpo_info');
+  if (info) {
+    info.textContent = '🔗 ' + p.title;
+    info.style.display = 'block';
+  }
+  _remapKey = null;
+  closeMSearch();
+  showToast('Привʼязано до Сільпо ✓');
 };
 
 // ═══════════════════════════════
@@ -1520,64 +1668,6 @@ function seedFoodsFromMenu() {
 // For every FOODS entry that isn't already linked to Silpo and isn't a manual
 // override, search Silpo and replace the entry's КБЖУ + attach slug/icon/price.
 // Auto-seeded entries (source='auto') get upgraded to source='silpo' on success.
-async function enrichFoodsFromSilpo(progress) {
-  const candidates = Object.keys(FOODS).filter(k => {
-    const v = FOODS[k];
-    return v && v.source !== 'silpo' && v.source !== 'manual';
-  });
-  let upgraded = 0;
-  for (let i = 0; i < candidates.length; i++) {
-    const key = candidates[i];
-    const food = FOODS[key];
-    const name = food.name || key;
-    progress?.(name, i, candidates.length);
-    try {
-      let items = [];
-      for (const query of [name, name.split(' ')[0]]) {
-        const sr = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products?limit=20&search=${encodeURIComponent(query)}`, { headers: { accept: 'application/json' } });
-        const sd = await sr.json();
-        items = sd.items || [];
-        if (items.length) break;
-      }
-      const best = pickBestSilpo(items, name);
-      if (!best) continue;
-      const dr = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products/${best.slug}`, { headers: { accept: 'application/json' } });
-      const detail = await dr.json();
-      const nutr = parseSilpoNutr(detail.attributeGroups);
-      // Decide whether to overwrite the existing entry:
-      //   - If current entry has no КБЖУ (empty stub from manual add) →
-      //     accept any Silpo data, even partial. Anything is better than 0.
-      //   - If current entry already has POOL data → only overwrite when
-      //     Silpo returned a complete set, otherwise POOL is more reliable.
-      const hasAnyNutr  = nutr && nutr.kcal != null;
-      const hasFullNutr = hasAnyNutr && nutr.protein != null && nutr.fat != null && nutr.carbs != null;
-      const isEmptyStub = !food.kcal;
-      if (!hasAnyNutr) continue;
-      if (!isEmptyStub && !hasFullNutr) continue;
-      // Coalesce missing pieces to whatever we already had (or 0)
-      const merged = {
-        kcal:    nutr.kcal    ?? food.kcal    ?? 0,
-        protein: nutr.protein ?? food.protein ?? 0,
-        fat:     nutr.fat     ?? food.fat     ?? 0,
-        carbs:   nutr.carbs   ?? food.carbs   ?? 0,
-      };
-      FOODS[key] = {
-        name,
-        silpoTitle:      best.title,
-        silpoSlug:       best.slug,
-        silpoIcon:       best.icon || null,
-        silpoPrice:      best.displayPrice ?? null,
-        silpoPriceRatio: best.displayRatio ?? null,
-        source: 'silpo',
-        ...merged,
-      };
-      if (db) set(ref(db, 'racion/foods/' + key), FOODS[key]).catch(() => {});
-      upgraded++;
-    } catch(e) {}
-  }
-  return { upgraded, total: candidates.length };
-}
-
 // Push FOODS data into every menu item that has a matching name. Used after
 // enrichment to propagate Silpo-accurate КБЖУ back to the plan.
 function applyFoodsToMenuItems() {
@@ -1617,46 +1707,37 @@ async function autoFillWeek(applyTemplate = false) {
 
   // Phase 1 — generate plan from profile (only on explicit "OK" choice).
   // Generator embeds POOL КБЖУ in every item and seeds FOODS so the directory
-  // is 100% populated even before any Silpo lookup.
+  // is 100% populated. NO Silpo network calls happen here — Silpo linking is
+  // a per-product opt-in via 🔗 button in the product card.
   if (applyTemplate) {
     title.textContent = 'Складаємо план...';
     sub.textContent = 'Генеруємо тиждень з профілів';
+    bar.style.width = '30%';
     applyPlanTemplate();
-    renderMeals();
-    renderTotals();
   }
 
   // Phase 2 — make sure every menu item has a FOODS entry (covers manually
-  // edited items added between regenerations)
+  // edited items between regenerations). Stubs get 0 КБЖУ; user can fill
+  // them later via 🤖 (POOL) or 🔗 (Silpo) buttons in the product card.
+  bar.style.width = '60%';
+  sub.textContent = 'Оновлюємо довідник';
   seedFoodsFromMenu();
 
-  // Phase 3 — enrich FOODS from Silpo (one network call per unique food)
-  title.textContent = 'Збагачуємо з Сільпо...';
-  const { upgraded, total } = await enrichFoodsFromSilpo((name, i, n) => {
-    sub.textContent = name;
-    bar.style.width = `${Math.round(i / Math.max(1, n) * 80)}%`;
-  });
-
-  // Phase 4 — push the (now possibly Silpo-accurate) FOODS data into menu items.
-  // If we just generated, run the generator a second time so portion sizes
-  // get recalculated using the better КБЖУ values that just came back.
+  // Phase 3 — push current FOODS data back into menu items
+  bar.style.width = '90%';
   applyFoodsToMenuItems();
-  if (applyTemplate) {
-    title.textContent = 'Перераховуємо порції...';
-    sub.textContent = 'З урахуванням КБЖУ Сільпо';
-    bar.style.width = '90%';
-    applyPlanTemplate();
-  }
 
   // Save
   bar.style.width = '100%';
   title.textContent = '✓ Готово!';
-  sub.textContent = `Збагачено ${upgraded} з ${total} продуктів з Сільпо`;
+  sub.textContent = applyTemplate
+    ? 'План створено з даних профіля. Привʼяжи продукти до Сільпо вручну (🔗 у картці продукту)'
+    : 'Довідник синхронізовано з меню';
   if (db) set(ref(db, 'racion/menu'), MENU).then(() => setSyncStatus('ok', 'Збережено ✓')).catch(() => {});
   renderMeals();
   renderTotals();
   renderFoodsDir();
-  setTimeout(() => overlay.classList.remove('on'), 2000);
+  setTimeout(() => overlay.classList.remove('on'), 2200);
 }
 
 // ═══════════════════════════════
