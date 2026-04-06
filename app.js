@@ -2962,13 +2962,25 @@ function buildFoodsPoolsForPerson(person) {
 }
 
 // Sensible portion bounds per category for FOODS-based generation.
+// Protein max is intentionally low (200g, ~3-4 eggs or 1 chicken portion).
+// For specific named ingredients we have tighter per-product bounds in POOL.
 const CAT_PORTION = {
-  protein: { def: 150, min: 80,  max: 250 },
-  dairy:   { def: 200, min: 100, max: 350 },
-  carb:    { def: 100, min: 50,  max: 200 },
-  fruit:   { def: 130, min: 80,  max: 250 },
+  protein: { def: 150, min: 80,  max: 200 },
+  dairy:   { def: 200, min: 100, max: 300 },
+  carb:    { def: 100, min: 50,  max: 180 },
+  fruit:   { def: 130, min: 80,  max: 220 },
   veggie:  { def: 100, min: 50,  max: 200 },
 };
+
+// Resolve portion bounds for a food. Tries POOL by name match first
+// (per-product limits like "eggs max 220g"), falls back to CAT_PORTION.
+function findPortionBounds(name, cat) {
+  const pool = findInPool(name);
+  if (pool && pool.def != null) {
+    return { def: pool.def, min: pool.min || 30, max: pool.max || 300 };
+  }
+  return CAT_PORTION[cat] || { def: 100, min: 30, max: 300 };
+}
 
 // Local strict-mode generator: builds the week from FOODS only, no AI.
 // Same shape of output as generateMenuViaAI so the rest of the pipeline
@@ -3018,8 +3030,10 @@ function generateMenuLocally(pid) {
         picks.push({ cat, food: list[rot] });
       });
 
-      // Default portions per category, scale main (protein/carb) to hit target
-      const portions = picks.map(pk => (CAT_PORTION[pk.cat] || { def: 100 }).def);
+      // Default portions per ingredient — prefer per-product bounds from POOL
+      // (so eggs default to 110g, max 220g) over generic category defaults.
+      const allBounds = picks.map(pk => findPortionBounds(pk.food.n, pk.cat));
+      const portions = allBounds.map(b => b.def);
       const mainIdx = picks.map((p, i) => SCALABLE_CATEGORIES.has(p.cat) ? i : -1).filter(i => i >= 0);
       if (mainIdx.length) {
         let sideKcal = 0, mainKcal = 0;
@@ -3031,9 +3045,8 @@ function generateMenuLocally(pid) {
         if (mainKcal > 0) {
           const scale = targetMainKcal / mainKcal;
           for (const i of mainIdx) {
-            const bounds = CAT_PORTION[picks[i].cat] || { min: 30, max: 400 };
             let g = portions[i] * scale;
-            g = Math.max(bounds.min, Math.min(bounds.max, g));
+            g = Math.max(allBounds[i].min, Math.min(allBounds[i].max, g));
             portions[i] = Math.max(20, Math.round(g / 10) * 10);
           }
         }
