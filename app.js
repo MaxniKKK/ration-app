@@ -1729,13 +1729,23 @@ async function autoFillWeek(applyTemplate = false) {
     // writes into MENU and seeds FOODS with AI-provided nutrition.
     if (applyTemplate) {
       const provLabel = AI_PROVIDERS[getAIProvider()].label;
-      title.textContent = `${provLabel} генерує план...`;
       const ids = getPeopleIds();
       for (let i = 0; i < ids.length; i++) {
         const pid = ids[i];
-        sub.textContent = getPersonName(pid) + ` (${i+1}/${ids.length})`;
+        title.textContent = `${provLabel} генерує план...`;
+        sub.textContent = `${getPersonName(pid)} (${i+1}/${ids.length}) — це може зайняти до 1 хв`;
         bar.style.width = `${Math.round((i / ids.length) * 60)}%`;
-        await generateMenuViaAI(pid);
+        // Animate the bar slowly so user sees the modal isn't frozen
+        const slowAnim = setInterval(() => {
+          const cur = parseFloat(bar.style.width) || 0;
+          const max = ((i + 0.9) / ids.length) * 60;
+          if (cur < max) bar.style.width = (cur + 0.5) + '%';
+        }, 700);
+        try {
+          await generateMenuViaAI(pid);
+        } finally {
+          clearInterval(slowAnim);
+        }
       }
     }
 
@@ -2554,38 +2564,64 @@ async function callAIProvider(prompt) {
   const key = getAIKey(provider);
   if (!key) throw new Error(`Не налаштовано API ключ для ${AI_PROVIDERS[provider].label}. Зайди в Профіль.`);
 
-  if (provider === 'claude') {
-    const r = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': key,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-5',
-        max_tokens: 8192,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
-    if (!r.ok) throw new Error(`Claude API: ${r.status} ${await r.text()}`);
-    const data = await r.json();
-    return data.content?.[0]?.text || '';
-  }
+  // Hard timeout — without this a stuck network call hangs forever
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 120000);
 
-  if (provider === 'gemini') {
-    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(key)}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 8192 },
-      }),
-    });
-    if (!r.ok) throw new Error(`Gemini API: ${r.status} ${await r.text()}`);
-    const data = await r.json();
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  try {
+    if (provider === 'claude') {
+      console.log('[AI] Calling Claude API...');
+      const r = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        signal: ctl.signal,
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': key,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-5-20250929',
+          max_tokens: 8192,
+          messages: [{ role: 'user', content: prompt }],
+        }),
+      });
+      console.log('[AI] Claude response status:', r.status);
+      if (!r.ok) {
+        const txt = await r.text();
+        console.error('[AI] Claude error body:', txt);
+        throw new Error(`Claude API ${r.status}: ${txt.slice(0, 300)}`);
+      }
+      const data = await r.json();
+      console.log('[AI] Claude usage:', data.usage);
+      return data.content?.[0]?.text || '';
+    }
+
+    if (provider === 'gemini') {
+      console.log('[AI] Calling Gemini API...');
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(key)}`, {
+        method: 'POST',
+        signal: ctl.signal,
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 8192 },
+        }),
+      });
+      console.log('[AI] Gemini response status:', r.status);
+      if (!r.ok) {
+        const txt = await r.text();
+        console.error('[AI] Gemini error body:', txt);
+        throw new Error(`Gemini API ${r.status}: ${txt.slice(0, 300)}`);
+      }
+      const data = await r.json();
+      return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    }
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error('Запит до AI завис довше 2 хв. Спробуй ще раз або переключись на Gemini.');
+    throw e;
+  } finally {
+    clearTimeout(timer);
   }
 
   if (provider === 'openai') {
