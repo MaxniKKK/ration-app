@@ -40,31 +40,49 @@ const MONTHS = [
   "Листопад",
   "Грудень",
 ];
-const META = [
-  {
-    key: "breakfast",
-    name: "Сніданок",
-    time: "7:30",
-    ico: "🌅",
-    cls: "ib",
-  },
-  {
-    key: "snack1",
-    name: "Перекус 1",
-    time: "10:30",
-    ico: "🥗",
-    cls: "is",
-  },
-  { key: "lunch", name: "Обід", time: "13:00", ico: "🍽️", cls: "il" },
-  {
-    key: "snack2",
-    name: "Перекус 2",
-    time: "16:30",
-    ico: "🍎",
-    cls: "is2",
-  },
-  { key: "dinner", name: "Вечеря", time: "19:00", ico: "🌙", cls: "id" },
+// ── ДЕФОЛТНІ ПРИЙОМИ ЇЖІ ────────────────────────────────────────────────
+// Використовуються як шаблон для нових людей. Кожна людина має свою копію
+// в PEOPLE[pid].meals — її можна редагувати незалежно.
+const DEFAULT_MEALS = [
+  { key: "breakfast", name: "Сніданок",  time: "7:30",  ico: "🌅", cls: "ib"  },
+  { key: "snack1",    name: "Перекус 1", time: "10:30", ico: "🥗", cls: "is"  },
+  { key: "lunch",     name: "Обід",      time: "13:00", ico: "🍽️", cls: "il"  },
+  { key: "snack2",    name: "Перекус 2", time: "16:30", ico: "🍎", cls: "is2" },
+  { key: "dinner",    name: "Вечеря",    time: "19:00", ico: "🌙", cls: "id"  },
 ];
+
+// Список заборонених продуктів за замовчуванням (підрядки для пошуку в назві)
+const DEFAULT_FORBIDDEN = ['Лосось','Яловичина','Броколі','Свинина','Форель','Мигдаль','Горіх'];
+
+// ── ДЕФОЛТНІ ЛЮДИ ───────────────────────────────────────────────────────
+// Початковий стан PEOPLE для першого запуску. Після завантаження з Firebase
+// замінюється на дані з БД. Зберігаємо id 'you'/'her' щоб не мігрувати MENU.
+const DEFAULT_PEOPLE = {
+  you: {
+    id: 'you',
+    name: 'Ти',
+    color: '#c8f54a',
+    age: null,
+    weight: null,
+    targets: { kcal: 2200, protein: 175, fat: 70, carbs: 218 },
+    forbidden: [...DEFAULT_FORBIDDEN],
+    meals: JSON.parse(JSON.stringify(DEFAULT_MEALS)),
+    waterTarget: '3–3.5 л',
+    order: 0,
+  },
+  her: {
+    id: 'her',
+    name: 'Вона',
+    color: '#ff6b35',
+    age: null,
+    weight: null,
+    targets: { kcal: 1800, protein: 100, fat: 65, carbs: 195 },
+    forbidden: [...DEFAULT_FORBIDDEN],
+    meals: JSON.parse(JSON.stringify(DEFAULT_MEALS)),
+    waterTarget: '1.5–2 л',
+    order: 1,
+  },
+};
 
 // ── КАТЕГОРІЇ СІЛЬПО для авто-мапінгу ───────────────────────────────────
 // Ключ — назва з PLAN_TEMPLATE, значення — масив підрядків які мають
@@ -186,7 +204,8 @@ const PLAN_TEMPLATE = {
 let db = null,
   MENU = {},
   DIARY = {},
-  FOODS = {};
+  FOODS = {},
+  PEOPLE = JSON.parse(JSON.stringify(DEFAULT_PEOPLE));
 let curDay = new Date().getDay(),
   person = "you",
   editMode = false;
@@ -195,6 +214,29 @@ let calY = new Date().getFullYear(),
   calView = "month",
   selDate = null;
 let _msCtx = null, _msFoods = [], _remapKey = null;
+
+// ── PEOPLE ACCESSORS ────────────────────────────────────────────────────
+// Use these everywhere instead of hardcoding 'you'/'her' or META.
+function getPerson(pid)        { return PEOPLE[pid] || DEFAULT_PEOPLE[pid] || null; }
+function getPersonName(pid)    { return getPerson(pid)?.name || pid; }
+function getPersonColor(pid)   { return getPerson(pid)?.color || '#c8f54a'; }
+function getPersonMeals(pid)   { return getPerson(pid)?.meals || DEFAULT_MEALS; }
+function getPersonTargets(pid) { return getPerson(pid)?.targets || { kcal: 2000, protein: 150, fat: 65, carbs: 200 }; }
+function getPersonForbidden(pid) { return getPerson(pid)?.forbidden || []; }
+function getPersonWater(pid)   { return getPerson(pid)?.waterTarget || ''; }
+function getPeopleIds() {
+  return Object.values(PEOPLE)
+    .sort((a, b) => (a.order || 0) - (b.order || 0))
+    .map(p => p.id);
+}
+
+// Convert "#rrggbb" to "rgba(r,g,b,a)" for inline tinted backgrounds
+function hexToRgba(hex, alpha = 1) {
+  const m = /^#?([a-f0-9]{6})$/i.exec(hex || '');
+  if (!m) return hex;
+  const n = parseInt(m[1], 16);
+  return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${alpha})`;
+}
 
 // Initialize MENU from plan template so first render has valid structure
 applyPlanTemplate();
@@ -232,22 +274,49 @@ function initFirebase(cfg) {
     db = getDatabase(app);
     document.getElementById("loaderSub").textContent =
       "Завантаження меню...";
+    // Load people first (their forbidden lists drive auto-migration check below)
+    const peopleRef = ref(db, "racion/people");
+    onValue(peopleRef, (snap) => {
+      const val = snap.val();
+      if (val) {
+        PEOPLE = val;
+        // Heal each entry against DEFAULT_PEOPLE so missing fields don't crash UI
+        for (const pid of Object.keys(PEOPLE)) {
+          const def = DEFAULT_PEOPLE[pid] || {};
+          PEOPLE[pid] = {
+            ...def,
+            ...PEOPLE[pid],
+            meals: PEOPLE[pid].meals || def.meals || JSON.parse(JSON.stringify(DEFAULT_MEALS)),
+            forbidden: PEOPLE[pid].forbidden || def.forbidden || [],
+            targets: PEOPLE[pid].targets || def.targets || { kcal: 2000, protein: 150, fat: 65, carbs: 200 },
+          };
+        }
+      } else {
+        // First-time setup: write defaults to Firebase
+        PEOPLE = JSON.parse(JSON.stringify(DEFAULT_PEOPLE));
+        set(ref(db, "racion/people"), PEOPLE).catch(() => {});
+      }
+      // Re-render menu page since person info (name, targets, water) may have changed
+      if (document.querySelector('#screen-menu')) renderMenuPage();
+    });
+
     // Load menu from Firebase, fallback to defaults
     const menuRef = ref(db, "racion/menu");
     onValue(menuRef, (snap) => {
       const val = snap.val();
       if (val) MENU = val;
-      // Auto-migrate: replace menu if it contains forbidden products
-      const FORBIDDEN = ['Лосось','Яловичина','Броколі','Свинина','Форель','Мигдаль','Горіх'];
-      const hasForbidden = ['you','her'].some(p =>
-        [0,1,2,3,4,5,6].some(d =>
-          ['breakfast','snack1','lunch','snack2','dinner'].some(mk =>
-            (MENU[p]?.[d]?.[mk]?.items||[]).some(it =>
-              FORBIDDEN.some(f => it.n?.includes(f))
+      // Auto-migrate: replace menu if it contains any per-person forbidden product
+      const hasForbidden = getPeopleIds().some(p => {
+        const fb = getPersonForbidden(p);
+        if (!fb.length) return false;
+        return [0,1,2,3,4,5,6].some(d =>
+          getPersonMeals(p).some(m =>
+            (MENU[p]?.[d]?.[m.key]?.items || []).some(it =>
+              fb.some(f => it.n?.toLowerCase().includes(String(f).toLowerCase()))
             )
           )
-        )
-      );
+        );
+      });
       if (hasForbidden || !val) {
         applyPlanTemplate();
         set(ref(db, "racion/menu"), MENU);
@@ -351,10 +420,10 @@ function logToday() {
     key = dateKey(d),
     dow = d.getDay();
   if (!DIARY[key]) {
-    DIARY[key] = {
-      you: JSON.parse(JSON.stringify(MENU.you[dow])),
-      her: JSON.parse(JSON.stringify(MENU.her[dow])),
-    };
+    DIARY[key] = {};
+    for (const pid of getPeopleIds()) {
+      DIARY[key][pid] = JSON.parse(JSON.stringify(MENU[pid]?.[dow] || {}));
+    }
     pushDiary();
   }
 }
@@ -463,10 +532,10 @@ window.saveEdit = async function () {
   const key = dateKey(new Date()),
     dow = new Date().getDay();
   if (String(curDay) === String(dow)) {
-    DIARY[key] = {
-      you: JSON.parse(JSON.stringify(MENU.you[dow])),
-      her: JSON.parse(JSON.stringify(MENU.her[dow])),
-    };
+    DIARY[key] = {};
+    for (const pid of getPeopleIds()) {
+      DIARY[key][pid] = JSON.parse(JSON.stringify(MENU[pid]?.[dow] || {}));
+    }
     await pushDiary();
   }
   editMode = false;
@@ -481,12 +550,11 @@ window.saveEdit = async function () {
 
 function renderMenuPage() {
   document.getElementById("dayLbl").textContent = DAYS[curDay];
+  const pname = getPersonName(person);
+  const tgt = getPersonTargets(person);
   document.getElementById("daySub").textContent =
-    person === "you"
-      ? "Твій раціон · 2 200 ккал · дефіцит"
-      : "Її раціон · 1 800 ккал · підтримка";
-  document.getElementById("waterG").textContent =
-    person === "you" ? "3–3.5 л" : "1.5–2 л";
+    `${pname} · ${tgt.kcal.toLocaleString('uk-UA')} ккал`;
+  document.getElementById("waterG").textContent = getPersonWater(person) || '—';
   renderMeals();
   renderTotals();
 }
@@ -494,8 +562,9 @@ function renderMenuPage() {
 function renderTotals() {
   const t = MENU[person][curDay].totals;
   let kcal = 0, protein = 0, fat = 0, carbs = 0, anyAuto = false;
-  META.forEach(m => {
+  getPersonMeals(person).forEach(m => {
     const meal = MENU[person][curDay][m.key];
+    if (!meal) return;
     const calc = calcMealNutr(meal);
     if (calc) {
       kcal    += calc.kcal;
@@ -523,7 +592,13 @@ function renderTotals() {
 function renderMeals() {
   const list = document.getElementById("mealsList");
   list.innerHTML = "";
-  META.forEach((m, idx) => {
+  // Ensure meal slots exist on day for current person's meal config
+  const pmeals = getPersonMeals(person);
+  const day = MENU[person][curDay];
+  for (const m of pmeals) {
+    if (!day[m.key]) day[m.key] = { kcal: 0, items: [] };
+  }
+  pmeals.forEach((m, idx) => {
     const meal = MENU[person][curDay][m.key];
     const card = document.createElement("div");
     card.className =
@@ -1264,11 +1339,21 @@ function pickBestSilpo(items, name) {
 }
 
 function applyPlanTemplate() {
-  for (const p of ['you', 'her']) {
+  // For known people (you/her) — apply hardcoded PLAN_TEMPLATE.
+  // For new people — generate empty days from their meal config and targets.
+  for (const pid of getPeopleIds()) {
+    if (!MENU[pid]) MENU[pid] = {};
+    const tgt = getPersonTargets(pid);
+    const meals = getPersonMeals(pid);
     for (const d of [0,1,2,3,4,5,6]) {
-      if (!PLAN_TEMPLATE[p]?.[d]) continue;
-      if (!MENU[p]) MENU[p] = {};
-      MENU[p][d] = JSON.parse(JSON.stringify(PLAN_TEMPLATE[p][d]));
+      if (PLAN_TEMPLATE[pid]?.[d]) {
+        MENU[pid][d] = JSON.parse(JSON.stringify(PLAN_TEMPLATE[pid][d]));
+      } else {
+        // Empty day with this person's meal slots and targets
+        const day = { totals: { ...tgt } };
+        for (const m of meals) day[m.key] = { kcal: 0, items: [] };
+        MENU[pid][d] = day;
+      }
     }
   }
 }
@@ -1291,15 +1376,15 @@ async function autoFillWeek(applyTemplate = false) {
 
   // Collect all items that need lookup (no kcal_per_100 yet)
   const tasks = [];
-  for (const p of ['you', 'her']) {
+  for (const p of getPeopleIds()) {
     for (let d = 0; d <= 6; d++) {
       const dayData = MENU[p]?.[d];
       if (!dayData) continue;
-      for (const mk of ['breakfast','snack1','lunch','snack2','dinner']) {
-        const meal = dayData[mk];
+      for (const m of getPersonMeals(p)) {
+        const meal = dayData[m.key];
         if (!meal?.items) continue;
         meal.items.forEach((it, i) => {
-          if (it.n && it.kcal_per_100 == null) tasks.push({ p, d, mk, i, name: it.n });
+          if (it.n && it.kcal_per_100 == null) tasks.push({ p, d, mk: m.key, i, name: it.n });
         });
       }
     }
@@ -1375,12 +1460,12 @@ async function autoFillWeek(applyTemplate = false) {
 
 function buildShoppingList() {
   const map = {};
-  for (const p of ['you', 'her']) {
+  for (const p of getPeopleIds()) {
     for (let d = 0; d <= 6; d++) {
       const dayData = MENU[p]?.[d];
       if (!dayData) continue;
-      for (const mk of ['breakfast','snack1','lunch','snack2','dinner']) {
-        const meal = dayData[mk];
+      for (const m of getPersonMeals(p)) {
+        const meal = dayData[m.key];
         if (!meal?.items) continue;
         for (const it of meal.items) {
           if (!it.n) continue;
@@ -1517,17 +1602,21 @@ function renderMonth() {
     html += `<div class="day-log"><div class="dl-date">${cap(ds)}</div>`;
     if (log) {
       html += `<div class="dl-sub">Зафіксований раціон</div>`;
-      ["you", "her"].forEach((p) => {
-        const pd = log[p],
-          pname = p === "you" ? "Ти" : "Вона",
-          pc = p === "you" ? "var(--you)" : "var(--her)";
+      // Show every person who has data on this day (not just legacy you/her)
+      const peopleInLog = new Set([...getPeopleIds(), ...Object.keys(log)]);
+      peopleInLog.forEach((p) => {
+        const pd = log[p];
+        if (!pd) return;
+        const pname = getPersonName(p);
+        const pc = getPersonColor(p);
         let mh = "";
-        META.forEach((m) => {
+        getPersonMeals(p).forEach((m) => {
           const ml = pd[m.key];
           if (ml && ml.items && ml.items.length)
             mh += `<div class="lpb-meal"><div class="lpb-mn">${m.ico} ${m.name}</div><div class="lpb-items">${ml.items.map((it) => it.n + (it.g ? " (" + it.g + ")" : "")).join(", ")}</div></div>`;
         });
-        html += `<div class="lpb"><div class="lpb-hdr"><div class="lpb-dot" style="background:${pc}"></div><div class="lpb-name" style="color:${pc}">${pname}</div><div class="lpb-kc" style="color:${pc}">${pd.totals.kcal} ккал</div></div><div class="lpb-meals">${mh}</div></div>`;
+        const totalKcal = pd.totals?.kcal ?? 0;
+        html += `<div class="lpb"><div class="lpb-hdr"><div class="lpb-dot" style="background:${pc}"></div><div class="lpb-name" style="color:${pc}">${pname}</div><div class="lpb-kc" style="color:${pc}">${totalKcal} ккал</div></div><div class="lpb-meals">${mh}</div></div>`;
       });
     } else {
       html += `<div class="log-empty"><div class="lei">📭</div><p>Немає записів за цей день</p></div>`;
@@ -1558,7 +1647,13 @@ function renderWeek() {
 <div><div class="wr-day">${dname}${isToday ? " 🟢" : ""}</div><div class="wr-date">${ds}</div></div>
 <div class="wr-r">`;
     if (log) {
-      html += `<div class="wrbadge y">${log.you.totals.kcal} ккал</div><div class="wrbadge h">${log.her.totals.kcal} ккал</div>`;
+      // Render a colored badge per person who has a logged day
+      for (const pid of getPeopleIds()) {
+        const pd = log[pid];
+        if (!pd?.totals) continue;
+        const c = getPersonColor(pid);
+        html += `<div class="wrbadge" style="background:${hexToRgba(c,.12)};color:${c}">${pd.totals.kcal} ккал</div>`;
+      }
     } else html += `<div class="wrbadge e">Немає даних</div>`;
     html += `</div></div>`;
   }
