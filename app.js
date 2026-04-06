@@ -3204,6 +3204,32 @@ ${ingList}
 }
 
 // ── RECIPE INGREDIENT COVERAGE ──────────────────────────────────────────
+// Pantry staples that everyone always has — exclude them from coverage
+// analysis entirely. They never count as 'missing' and don't reduce ratio.
+// Each entry is a substring matched case-insensitively against the parsed
+// ingredient base name.
+const PANTRY_STAPLES = [
+  'сіль', 'перець', 'перц', 'вода', 'льод',
+  'цукор', 'цукр', 'ванільн', 'ваніль',
+  'олія', 'олії', 'оцет', 'оцт', 'оливков',
+  // Common dried spices / herbs
+  'лавров', 'кмин', 'паприк', 'кориц', 'мускат', 'гвоздик', 'кардамон',
+  'імбир', 'куркум', 'базилік', 'орегано', 'чебрец', 'тим\'ян', 'розмарин',
+  'мʼят', 'мят', 'кінз', 'фенхель', 'кор\'ян', 'чилі', 'кайєн', 'каррі',
+  // Fresh herbs everyone has
+  'петрушк', 'кріп', 'кропу', 'зелен',
+  // Baking basics
+  'сод', 'розпушувач', 'дріжж',
+  // Garlic — everyone has it
+  'часник', 'часнику', 'зубчик',
+];
+
+function isPantryStaple(parsedName) {
+  const n = String(parsedName || '').toLowerCase();
+  if (!n) return false;
+  return PANTRY_STAPLES.some(s => n.includes(s));
+}
+
 // Parse a raw klopotenko ingredient string ("500 г свинини", "2 ст. л. олії",
 // "4-5 шт. картоплі") into a normalized base name suitable for matching.
 function parseIngredientName(raw) {
@@ -3245,18 +3271,28 @@ function stemsOf(text) {
   );
 }
 
-// Match an ingredient string against a product name. Heuristic:
-// any non-trivial stem in the parsed ingredient that also appears in
-// the product name = match.
+// Match an ingredient string against a product name. Cascade:
+//   1. Direct substring (case-insensitive) — handles "яйця" → "Яйця курячі"
+//   2. Stem overlap — handles "картоплі" → "Картопля"
+//   3. 4-char prefix overlap — fallback for inflected forms
 function ingredientMatchesProduct(ingredientText, productName) {
-  const ing = parseIngredientName(ingredientText);
-  if (!ing) return false;
+  const ing = parseIngredientName(ingredientText).toLowerCase();
+  const prod = String(productName || '').toLowerCase();
+  if (!ing || !prod) return false;
+  // 1. Substring either way (so 'яйця' matches 'яйця курячі' AND 'олія оливкова' matches 'олія')
+  if (prod.includes(ing) || ing.includes(prod)) return true;
+  // Compare significant words too — handles 'куряче філе' vs 'філе курки'
+  const ingWords = ing.split(/\s+/).filter(w => w.length > 2);
+  for (const w of ingWords) {
+    if (prod.includes(w)) return true;
+  }
+  // 2. Stem overlap
   const ingStems = stemsOf(ing);
-  const prodStems = stemsOf(productName);
+  const prodStems = stemsOf(prod);
   if (!ingStems.size || !prodStems.size) return false;
   for (const s of ingStems) {
     if (prodStems.has(s)) return true;
-    // Also try prefix overlap (4+ chars) for Ukrainian forms
+    // 3. Prefix fallback (4+ chars)
     for (const p of prodStems) {
       if (s.length >= 4 && p.length >= 4 && (s.startsWith(p.slice(0, 4)) || p.startsWith(s.slice(0, 4)))) return true;
     }
@@ -3264,13 +3300,17 @@ function ingredientMatchesProduct(ingredientText, productName) {
   return false;
 }
 
-// For one recipe: how many of its ingredients map to a product in FOODS?
+// For one recipe: how many of its non-staple ingredients map to a product
+// in FOODS? Pantry staples (сіль, перець, спеції, etc) are excluded from
+// both matched and total — they're assumed always available.
 function analyzeRecipeCoverage(recipe, productEntries) {
   const ings = recipe.ingredients || [];
-  if (!ings.length) return { matched: 0, total: 0, ratio: 0, missing: [] };
-  let matched = 0;
+  if (!ings.length) return { matched: 0, total: 0, ratio: 0, missing: [], skipped: 0 };
+  let matched = 0, skipped = 0;
   const missing = [];
   for (const ing of ings) {
+    const parsed = parseIngredientName(ing);
+    if (isPantryStaple(parsed)) { skipped++; continue; }
     let found = false;
     for (const prod of productEntries) {
       if (ingredientMatchesProduct(ing, prod.name)) { found = true; break; }
@@ -3278,7 +3318,8 @@ function analyzeRecipeCoverage(recipe, productEntries) {
     if (found) matched++;
     else missing.push(ing);
   }
-  return { matched, total: ings.length, ratio: matched / ings.length, missing };
+  const total = ings.length - skipped;
+  return { matched, total, ratio: total > 0 ? matched / total : 1, missing, skipped };
 }
 
 // Whitelist threshold — recipes with coverage ≥ this become available for the
