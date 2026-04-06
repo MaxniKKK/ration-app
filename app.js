@@ -3204,100 +3204,194 @@ ${ingList}
 }
 
 // ── RECIPE INGREDIENT COVERAGE ──────────────────────────────────────────
-// Pantry staples that everyone always has — exclude them from coverage
-// analysis entirely. They never count as 'missing' and don't reduce ratio.
-// Each entry is a substring matched case-insensitively against the parsed
-// ingredient base name.
-const PANTRY_STAPLES = [
-  'сіль', 'перець', 'перц', 'вода', 'льод',
-  'цукор', 'цукр', 'ванільн', 'ваніль',
-  'олія', 'олії', 'оцет', 'оцт', 'оливков',
+// Pantry staples — stem-form set. Includes ALL common stem variants
+// (Ukrainian has stem-changing inflections so 'сіль' → 'сіл' but 'солі' → 'сол';
+// both must be listed). These never count as missing or reduce the ratio.
+const PANTRY_STAPLE_STEMS = new Set([
+  // SALT — сіль/солі/сіллю/посолити
+  'сол', 'сіл', 'сол', 'посол',
+  // PEPPER — перець/перцю/перчений/перчик
+  'перц', 'перец', 'перч', 'перчик',
+  // WATER — вода/води/водою
+  'вод', 'льод',
+  // SUGAR — цукор/цукру/цукровий
+  'цук', 'цукор', 'цукр',
+  // VANILLA
+  'ванілі', 'ваніль', 'ваніл', 'ванільн',
+  // OIL — олія/олій/оливкова
+  'олі', 'олій', 'олиї', 'оливк',
+  // VINEGAR — оцет/оцту
+  'оце', 'оцт', 'оцет',
   // Common dried spices / herbs
-  'лавров', 'кмин', 'паприк', 'кориц', 'мускат', 'гвоздик', 'кардамон',
-  'імбир', 'куркум', 'базилік', 'орегано', 'чебрец', 'тим\'ян', 'розмарин',
-  'мʼят', 'мят', 'кінз', 'фенхель', 'кор\'ян', 'чилі', 'кайєн', 'каррі',
+  'лавр', 'кмин', 'паприк', 'кориц', 'мускат', 'гвоздик', 'кардамон',
+  'імбир', 'куркум', 'базилік', 'орегано', 'чебрец', 'тимʼ', 'тим', 'розмарин',
+  'мят', 'мʼят', 'кінз', 'фенхель', 'чилі', 'кайєн', 'каррі', 'хмел',
   // Fresh herbs everyone has
-  'петрушк', 'кріп', 'кропу', 'зелен',
+  'петрушк', 'кріп', 'кроп', 'зелен',
   // Baking basics
-  'сод', 'розпушувач', 'дріжж',
-  // Garlic — everyone has it
-  'часник', 'часнику', 'зубчик',
-];
+  'сод', 'розпуш', 'дріжж',
+  // Garlic
+  'часник', 'часн', 'часнк', 'зубчик', 'зубч', 'зубк',
+]);
 
 function isPantryStaple(parsedName) {
-  const n = String(parsedName || '').toLowerCase();
-  if (!n) return false;
-  return PANTRY_STAPLES.some(s => n.includes(s));
+  if (!parsedName) return false;
+  const allStems = stemsOf(parsedName);
+  if (!allStems.size) return true;
+  // Drop modifier-adjective stems via prefix match (so 'червони' filters
+  // even though MODS only has 'червон')
+  const isModifier = s => {
+    for (const mod of STAPLE_MODIFIER_STEMS) {
+      if (s === mod) return true;
+      if (mod.length >= 4 && (s.startsWith(mod) || mod.startsWith(s))) return true;
+    }
+    return false;
+  };
+  const significant = [...allStems].filter(s => !isModifier(s));
+  if (!significant.length) return true;
+  for (const s of significant) {
+    let isStaple = false;
+    if (PANTRY_STAPLE_STEMS.has(s)) isStaple = true;
+    else {
+      for (const staple of PANTRY_STAPLE_STEMS) {
+        if (staple.length >= 3 && (s.startsWith(staple) || staple.startsWith(s))) {
+          isStaple = true;
+          break;
+        }
+      }
+    }
+    if (!isStaple) return false;
+  }
+  return true;
 }
 
 // Parse a raw klopotenko ingredient string ("500 г свинини", "2 ст. л. олії",
 // "4-5 шт. картоплі") into a normalized base name suitable for matching.
+//
+// All regexes use Unicode-aware word matching (Cyrillic letters explicitly).
+// Units are only stripped IF they follow a number — otherwise we'd eat the
+// initial 'л' from words like 'лавровий'.
 function parseIngredientName(raw) {
   let s = String(raw || '').toLowerCase();
-  // Decode HTML entities (klopotenko has &#8217; for apostrophe)
-  s = s.replace(/&#8217;|&rsquo;|&apos;/g, "'").replace(/&[a-z#0-9]+;/gi, '');
-  // Strip leading numbers/ranges/fractions
-  s = s.replace(/^[\d\s,.\/–\-]+/, '');
-  // Strip leading units (covers most klopotenko strings)
-  s = s.replace(/^(?:г|кг|мл|л|шт(?:уки?|ук)?|ч\.?\s*л\.?|ст\.?\s*л\.?|столов\w*\s*ложк\w*|чайн\w*\s*ложк\w*|стакан\w*|жмен\w*|пучк\w*|пуч[аоі]к\w*|щіпк\w*|зубчик\w*|зубч|пакет\w*|банк\w*|пляшк\w*|за\s*смак\w*|до\s*смак\w*)[\s\.,]*/i, '');
+  // Decode HTML entities
+  s = s.replace(/&#8217;|&rsquo;|&apos;/g, "'").replace(/&[a-z#0-9]+;/gi, ' ');
+  // Replace fractions with space (we'll strip the leading number block next)
+  s = s.replace(/[½¼¾⅓⅔⅛⅜⅝⅞]/g, ' ');
+  // Strip a leading number-and-unit block: optional digits/fractions/dashes,
+  // optional unit (must follow whitespace or appear after digits), trailing
+  // separator. Only happens if string starts with a digit OR known unit
+  // immediately followed by whitespace.
+  // Strip a leading number block + optional unit + separator.
+  // Cyrillic suffix class [а-яіїєґ]* covers all inflection forms.
+  s = s.replace(
+    /^[\d\s,.\/\u2013\-]+(?:г|кг|мл|л|шт[а-яіїєґ]*|ч\.?\s*л\.?|ст\.?\s*л\.?|столов[а-яіїєґ]*\s*ложк[а-яіїєґ]*|чайн[а-яіїєґ]*\s*ложк[а-яіїєґ]*|стакан[а-яіїєґ]*|склянк[а-яіїєґ]*|жмен[а-яіїєґ]*|пучок|пучк[а-яіїєґ]*|щіпк[а-яіїєґ]*|зубчик[а-яіїєґ]*|зубч[а-яіїєґ]*|зубк[а-яіїєґ]*|пакет[а-яіїєґ]*|банк[а-яіїєґ]*|пляшк[а-яіїєґ]*|за\s*смак[а-яіїєґ]*|до\s*смак[а-яіїєґ]*)?[\s\.,]*/i,
+    ''
+  );
+  // Strip leading quantifier nouns that may appear without numbers
+  s = s.replace(
+    /^(?:дрібк[аиу]|пучок|пучк[аиу]|пучка|жмен[яіюа]|щіпк[аи]|шматок|шматочок|шматочки|невелик[аиу]?|пара|кілька|трохи|по\s*смак[оу])[\s\.,]*/i,
+    ''
+  );
   // Strip parentheticals
-  s = s.replace(/\([^)]*\)/g, '');
-  // Strip leading common adjective stems (свіжий, варений, etc) — single pass
-  s = s.replace(/^(?:свіж|варен|тушков|смажен|запечен|сир|сухий|сушен|молод|стиглий|маринован|солон|солодк|гострий|очищ|нарізан|подрібн|круп|велик|тверд|червон|зелен|жовт|білий|чорний|темн|світл|середн)\w*\s+/i, '');
-  return s.trim();
+  s = s.replace(/\([^)]*\)/g, ' ');
+  // Strip leading common adjective stems (свіжий, варений, etc)
+  s = s.replace(
+    /^(?:свіж|варен|тушков|смажен|запечен|сухий|сушен|молод|стиглий|маринован|солон|нарізан|подрібн)[а-яіїєґʼ']*\s+/i,
+    ''
+  );
+  return s.replace(/\s+/g, ' ').trim();
 }
+
+// Adjective stems that DON'T change staple-status of a multi-word phrase
+// (used in isPantryStaple). 'лавровий лист' should be a staple because
+// 'лавр' is — the 'лист' is just the noun the adjective qualifies.
+const STAPLE_MODIFIER_STEMS = new Set([
+  'лавр', 'лавров', 'лист',
+  'червон', 'чорн', 'біл', 'жовт', 'зелен', 'темн', 'світл',
+  'молот', 'мелен', 'мел',
+  'дрібн', 'велик', 'малий',
+  'морськ', 'камʼя', 'камя', 'кам',
+  'запашн', 'духм',
+  'солодк', 'гострий', 'гірк', 'кисл',
+  'сушен', 'свіж',
+]);
+
+// Map post-stem irregular forms onto a canonical stem so different
+// stem-changing inflections collapse together (Ukrainian has stem-changing
+// nouns: яйце/яйця → 'яйц' but the genitive plural 'яєць' → 'яєц').
+const STEM_ALIASES = {
+  'яєц': 'яйц', 'яєчк': 'яйц', 'яєчн': 'яйц',
+  'мяс': 'мяс', 'мʼяс': 'мяс',
+  'моркв': 'морк', 'морков': 'морк',
+};
 
 // Cyrillic word stem — strip common inflection suffixes and normalize.
-// Not a real stemmer, just enough to match форм like 'картопля'/'картоплі'/'картоплю'.
+// No early-return for short words: 'яйце'/'сіль' must also be stemmed so
+// they collapse with 'яйця'/'солі'/'сіллю'.
 function stemUk(word) {
   let w = String(word || '').toLowerCase().replace(/[ʼ'']/g, '');
-  if (w.length <= 4) return w;
-  // Drop trailing inflection: и/і/у/ю/о/а/ї/є/ой/ою/ів/ам/ів/ями/ями
-  w = w.replace(/(?:ами|ями|ому|ого|ями|ою|ам|ів|ій|ої|ом|их|ах|ят|ям|ою|ия|ій|їй|ою|ам)$/, '');
-  w = w.replace(/[аиіїоеєуюяь]$/, '');
-  return w.slice(0, 6);
+  if (!w) return '';
+  // Drop common Ukrainian inflection suffixes (cases/numbers)
+  w = w.replace(/(?:ами|ями|ому|ого|ям|ах|ою|ій|ої|ом|их|ат|ят|ів|ам|ах|ях|ем|им|ять|ять)$/, '');
+  // Drop trailing single vowel or soft sign
+  w = w.replace(/[аеєиіїоуюяь]$/, '');
+  w = w.slice(0, 7);
+  return STEM_ALIASES[w] || w;
 }
 
-// Compute the set of significant stems for a piece of text (words len > 3).
+// Compute the set of significant stems for a piece of text. Filter very
+// short noise words (≤2 chars) but keep 3-char ones so 'сіль'→'сіл'/'рис'
+// stay in the set.
 function stemsOf(text) {
   return new Set(
     String(text || '')
       .toLowerCase()
       .replace(/[^а-яіїєґʼ'\s]/g, ' ')
       .split(/\s+/)
-      .filter(w => w.length > 3)
+      .filter(w => w.length >= 3)
       .map(stemUk)
-      .filter(Boolean)
+      .filter(s => s && s.length >= 2)
   );
 }
 
-// Match an ingredient string against a product name. Cascade:
-//   1. Direct substring (case-insensitive) — handles "яйця" → "Яйця курячі"
-//   2. Stem overlap — handles "картоплі" → "Картопля"
-//   3. 4-char prefix overlap — fallback for inflected forms
+// Match an ingredient string against a product name.
+// Strict enough to NOT confuse "куряче філе" with "Яйця курячі" (both share
+// 'куряч' stem but only one stem of 2 — 50% overlap, below threshold).
 function ingredientMatchesProduct(ingredientText, productName) {
   const ing = parseIngredientName(ingredientText).toLowerCase();
   const prod = String(productName || '').toLowerCase();
   if (!ing || !prod) return false;
-  // 1. Substring either way (so 'яйця' matches 'яйця курячі' AND 'олія оливкова' matches 'олія')
+
+  // 1. Direct full-string substring either way (very strong signal).
+  //    'яйця' includes-test against 'яйця курячі' = MATCH.
   if (prod.includes(ing) || ing.includes(prod)) return true;
-  // Compare significant words too — handles 'куряче філе' vs 'філе курки'
-  const ingWords = ing.split(/\s+/).filter(w => w.length > 2);
-  for (const w of ingWords) {
-    if (prod.includes(w)) return true;
-  }
-  // 2. Stem overlap
-  const ingStems = stemsOf(ing);
-  const prodStems = stemsOf(prod);
-  if (!ingStems.size || !prodStems.size) return false;
+
+  // 2. Stem-based matching with REQUIRED-OVERLAP ratio.
+  //    For multi-word ingredients/products we need at least ⌈min(|i|,|p|)*0.6⌉
+  //    shared stems. This prevents 'куряче філе' (stems куряч,філ) from
+  //    matching 'яйця курячі' (stems яйц,куряч) on a single shared stem.
+  const ingStems = [...stemsOf(ing)];
+  const prodStems = [...stemsOf(prod)];
+  if (!ingStems.length || !prodStems.length) return false;
+
+  let shared = 0;
   for (const s of ingStems) {
-    if (prodStems.has(s)) return true;
-    // 3. Prefix fallback (4+ chars)
+    if (prodStems.includes(s)) { shared++; continue; }
     for (const p of prodStems) {
-      if (s.length >= 4 && p.length >= 4 && (s.startsWith(p.slice(0, 4)) || p.startsWith(s.slice(0, 4)))) return true;
+      if (s.length >= 4 && p.length >= 4 &&
+          (s.startsWith(p.slice(0, 4)) || p.startsWith(s.slice(0, 4)))) {
+        shared++;
+        break;
+      }
     }
   }
-  return false;
+
+  const minSize = Math.min(ingStems.length, prodStems.length);
+  // Single-word on one side: 1 shared is enough (we already passed substring
+  // check, this catches inflected forms like 'картоплі' → 'Картопля').
+  // Multi-word both sides: need ≥60% of the smaller side's stems to overlap.
+  const required = minSize <= 1 ? 1 : Math.ceil(minSize * 0.6);
+  return shared >= required;
 }
 
 // For one recipe: how many of its non-staple ingredients map to a product
@@ -3344,7 +3438,9 @@ window.runRecipeCoverageAnalysis = function() {
 
   const recipes = Object.entries(FOODS).filter(([k, f]) => f?.type === 'recipe');
   let whitelisted = 0;
-  // Count missing ingredient frequencies — useful TODO for the user
+  // Count missing ingredient frequencies — useful TODO for the user.
+  // Skip parses that are pure staples (defensive: should already be filtered
+  // out in analyzeRecipeCoverage but double-check here).
   const missingFreq = new Map();
   for (const [key, recipe] of recipes) {
     const cov = analyzeRecipeCoverage(recipe, products);
@@ -3354,7 +3450,8 @@ window.runRecipeCoverageAnalysis = function() {
     if (isWhite) whitelisted++;
     for (const m of cov.missing) {
       const base = parseIngredientName(m);
-      if (base) missingFreq.set(base, (missingFreq.get(base) || 0) + 1);
+      if (!base || isPantryStaple(base)) continue;
+      missingFreq.set(base, (missingFreq.get(base) || 0) + 1);
     }
   }
 
