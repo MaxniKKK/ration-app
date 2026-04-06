@@ -352,6 +352,13 @@ body{background:var(--bg);color:var(--text);font-family:'Golos Text',sans-serif;
 .pcard-price{font-size:13px;color:var(--text);margin-bottom:16px;min-height:18px;}
 .pcard-src{font-size:11px;color:var(--muted);margin-bottom:16px;}
 .pcard-src a{color:var(--blue);text-decoration:none;}
+.pcard-tags-section{margin-bottom:14px;padding-top:12px;border-top:1px solid var(--border);}
+.pcard-tags-label{font-family:'Unbounded',sans-serif;font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px;}
+.pcard-tags-row{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px;}
+.pcard-tag{padding:6px 12px;border-radius:14px;border:1.5px solid var(--border);background:var(--card2);font-family:'Unbounded',sans-serif;font-size:9px;font-weight:700;color:var(--muted);cursor:pointer;transition:all .15s;}
+.pcard-tag.active{border-color:var(--accent);color:var(--accent);background:rgba(200,245,74,.08);}
+.pcard-tag:active{opacity:.7;}
+.pcard-tags-hint{font-size:10px;color:var(--muted);font-style:italic;line-height:1.4;}
 .pcard-actions{display:flex;gap:8px;}
 .pcard-open-a{flex:1;padding:13px;background:var(--accent);border:none;border-radius:13px;font-family:'Unbounded',sans-serif;font-size:11px;font-weight:700;color:#000;cursor:pointer;text-decoration:none;text-align:center;display:flex;align-items:center;justify-content:center;}
 .pcard-edit-btn{padding:13px 16px;background:none;border:1.5px solid var(--border);border-radius:13px;font-size:16px;cursor:pointer;color:var(--muted);}

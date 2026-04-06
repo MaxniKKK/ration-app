@@ -1285,17 +1285,44 @@ window.openPCard = function(key) {
     srcEl.textContent = 'Додано вручну';
   }
 
+  // Meal-type tags: which slot types this product can appear in
+  const tagsEl = document.getElementById('pcardTagsSection');
+  const curTags = food.tags || [];
+  tagsEl.innerHTML = `
+    <div class="pcard-tags-label">Категорії прийомів</div>
+    <div class="pcard-tags-row">
+      ${MEAL_TAGS.map(t => `
+        <button class="pcard-tag${curTags.includes(t.key) ? ' active' : ''}" onclick="togglePCardTag('${key}','${t.key}')">${t.label}</button>
+      `).join('')}
+    </div>
+    <div class="pcard-tags-hint">${curTags.length
+      ? 'Продукт буде використовуватись лише в обраних типах прийомів'
+      : 'Без обмежень — продукт може зʼявлятись у будь-якому прийомі'}</div>
+  `;
+
   const actEl = document.getElementById('pcardActions');
   const openBtn = (food.silpoSlug && food.source === 'silpo')
     ? `<a class="pcard-open-a" href="https://silpo.ua/product/${food.silpoSlug}" target="_blank" onclick="event.stopPropagation()">Відкрити в Сільпо ↗</a>`
     : `<div style="flex:1"></div>`;
   actEl.innerHTML = `${openBtn}
-    <button class="pcard-edit-btn" title="Заповнити КБЖУ через AI (вбудовані дані)" onclick="applyAIFillFood('${key}')">🤖</button>
+    <button class="pcard-edit-btn" title="Заповнити КБЖУ через AI" onclick="applyAIFillFood('${key}')">🤖</button>
     <button class="pcard-edit-btn" title="Привʼязати до продукту в Сільпо" onclick="openRemap('${key}')">🔗</button>
     <button class="pcard-edit-btn" title="Редагувати КБЖУ" onclick="closePCard();showScreen('search');showFdTab('dir');startEditFood('${key}')">✏️</button>
     <button class="pcard-del-btn" title="Видалити" onclick="confirmDeletePCardFood('${key}')">🗑</button>`;
 
   document.getElementById('pcardModal').classList.add('on');
+};
+
+window.togglePCardTag = function(key, tag) {
+  const food = FOODS[key];
+  if (!food) return;
+  const tagSet = new Set(food.tags || []);
+  if (tagSet.has(tag)) tagSet.delete(tag);
+  else tagSet.add(tag);
+  FOODS[key] = { ...food, tags: [...tagSet] };
+  if (db) set(ref(db, 'racion/foods/' + key), FOODS[key]).catch(() => {});
+  // Re-render in place by re-opening (cheap, modal stays mounted)
+  openPCard(key);
 };
 
 window.closePCard = function() {
@@ -2683,9 +2710,15 @@ function buildPlanPrompt(person, mode = 'free') {
   const isForbidden = name => fbForbidden.some(f =>
     String(name||'').toLowerCase().includes(String(f).toLowerCase())
   );
+  const tagLabel = key => MEAL_TAGS.find(t => t.key === key)?.label || key;
   const dirItems = Object.values(FOODS)
     .filter(f => f && f.name && (f.kcal || 0) > 0 && !isForbidden(f.name))
-    .map(f => `  - ${f.name}: ${Math.round(f.kcal)} ккал, ${(f.protein||0)}г Б, ${(f.fat||0)}г Ж, ${(f.carbs||0)}г В`);
+    .map(f => {
+      const base = `  - ${f.name}: ${Math.round(f.kcal)} ккал, ${(f.protein||0)}г Б, ${(f.fat||0)}г Ж, ${(f.carbs||0)}г В`;
+      const tags = (f.tags || []);
+      if (tags.length) return base + ` [тільки для: ${tags.map(tagLabel).join(', ')}]`;
+      return base;
+    });
 
   let dirSection = '';
   if (dirItems.length) {
@@ -2723,7 +2756,8 @@ ${meals}${dirSection}
 5. Денна сума ккал має бути близькою до цілі ±100 ккал.
 6. Різноманітність — не повторюй однакові прийоми кожного дня.
 7. ВРАХУЙ заборонені продукти і їх варіації (наприклад "лосось" забороняє "стейк лосося").
-8. Кожен item має містити ТОЧНІ значення per-100g — реальні харчові дані.
+8. Якщо в продукта вказано [тільки для: ...] — використовуй його ВИКЛЮЧНО в перелічених типах прийомів. Наприклад "[тільки для: Сніданок]" означає що продукт може бути лише в сніданку.
+9. Кожен item має містити ТОЧНІ значення per-100g — реальні харчові дані.
 
 Формат відповіді (точно такий, без коментарів):
 {
@@ -2874,6 +2908,23 @@ function parseAIPlanResponse(text) {
   return JSON.parse(t);
 }
 
+// ── MEAL TYPE TAGS ──────────────────────────────────────────────────────
+// Each FOODS entry may have an optional `tags` array. If non-empty, the
+// generator (both local and AI) will only place that product in meal slots
+// classified into one of the listed types. Empty/missing → no constraint.
+const MEAL_TAGS = [
+  { key: 'breakfast', label: 'Сніданок' },
+  { key: 'lunch',     label: 'Обід'     },
+  { key: 'dinner',    label: 'Вечеря'   },
+  { key: 'snack',     label: 'Перекус'  },
+];
+
+function isFoodAllowedForMealType(food, mealType) {
+  const tags = food?.tags;
+  if (!tags || !tags.length) return true;  // no tags = unrestricted
+  return tags.includes(mealType);
+}
+
 // ── LOCAL CLASSIFIER for FOODS entries ─────────────────────────────────
 // Used by strict-mode generator that runs without any AI calls.
 // Returns 'protein'|'dairy'|'carb'|'fruit'|'veggie' or null if unrecognised.
@@ -2901,6 +2952,7 @@ function buildFoodsPoolsForPerson(person) {
     pools[cat].push({
       key, n: food.name,
       k: food.kcal, p: food.protein || 0, f: food.fat || 0, c: food.carbs || 0,
+      tags: food.tags || [],
       silpoSlug:       food.silpoSlug,
       silpoPrice:      food.silpoPrice      ?? null,
       silpoPriceRatio: food.silpoPriceRatio ?? null,
@@ -2956,11 +3008,12 @@ function generateMenuLocally(pid) {
       const recipe = MEAL_RECIPE[type] || MEAL_RECIPE.snack;
       const mealKcal = slotKcals[idx];
 
-      // Pick ingredients with rotation across days/slots so variety happens
+      // Pick ingredients with rotation across days/slots so variety happens.
+      // Filter by meal-type tags: a tagged item only appears in matching slots.
       const picks = [];
       recipe.forEach((cat, ci) => {
-        const list = pools[cat];
-        if (!list || !list.length) return;
+        const list = (pools[cat] || []).filter(it => isFoodAllowedForMealType(it, type));
+        if (!list.length) return;
         const rot = ((day * 7 + idx * 3 + ci) % list.length + list.length) % list.length;
         picks.push({ cat, food: list[rot] });
       });
@@ -3045,8 +3098,13 @@ async function generateMenuViaAI(pid, mode = 'free') {
             carbs:   Number(it.carbs_per_100)   || 0,
           };
           const key = foodKey(name);
-          if (!FOODS[key] || FOODS[key].source === 'auto') {
+          if (!FOODS[key]) {
             FOODS[key] = { name, ...cleaned, source: 'auto' };
+            if (db) set(ref(db, 'racion/foods/' + key), FOODS[key]).catch(() => {});
+          } else if (FOODS[key].source === 'auto') {
+            // Refresh nutrition for auto entries but PRESERVE user-set tags
+            // and any silpo link that may have been attached later
+            FOODS[key] = { ...FOODS[key], ...cleaned };
             if (db) set(ref(db, 'racion/foods/' + key), FOODS[key]).catch(() => {});
           }
           // Build menu item with embedded nutrition + Silpo link if any
