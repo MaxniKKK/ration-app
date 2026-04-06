@@ -2902,24 +2902,77 @@ async function fetchNutritionFromAI(name) {
   return result;
 }
 
-// ── RECIPE CATEGORIES (visible in the directory grouping) ───────────────
-// key = stable id, label = string that appears IN klopotenko's category field
-// (substring match), icon = visual.
-const RECIPE_CATEGORIES = [
-  { key: 'breakfast', label: 'Сніданок',     icon: '🌅' },  // matched by name heuristic
-  { key: 'pershi',    label: 'Перші страви', icon: '🍲' },
-  { key: 'drugi',     label: 'Другі страви', icon: '🍽️' },
-  { key: 'myasni',    label: 'М\'ясні',      icon: '🥩' },
-  { key: 'rybni',     label: 'Рибне',        icon: '🐟' },
-  { key: 'salaty',    label: 'Салати',       icon: '🥗' },
-  { key: 'garniry',   label: 'Гарніри',      icon: '🍚' },
-  { key: 'ovochevi',  label: 'Овочеві',      icon: '🥦' },
-  { key: 'zakuski',   label: 'Закуски',      icon: '🥙' },
-  { key: 'desserts',  label: 'Десерти',      icon: '🍰' },
-  { key: 'sweets',    label: 'Солодкі страви', icon: '🍮' },
-  { key: 'baking',    label: 'Випічка',      icon: '🥐' },
-  { key: 'drinks',    label: 'Напої',        icon: '🥤' },
+// Categories that aren't shown as buckets in the recipes view. Recipes
+// carrying any of these still exist in FOODS — they appear under their
+// other (real) categories. Only orphans fall into 'Інше'.
+const SKIP_BUCKET_NAMES = new Set([
+  // Meta-tags (filters, not categories)
+  'Відео',
+  'Готуємо без світла',
+  'Шкільні рецепти',
+  'Мамині рецепти',
+  'Страви в мультиварці',
+  'Страви з пшениці',
+  // User-decided exclusions
+  'Дієтичні страви',
+  'Вегетаріанські рецепти',
+  'Блюда на Пасху',
+  'Торти',
+  'Рибне',
+  'Сендвічі та бутерброди',
+  'Випічка',
+  'Солодкі страви',
+  'Десерти',
+  'Коктейлі та напої',
+]);
+
+// Top-level meal-type buckets that the recipes view groups into.
+// Same key as MEAL_TAGS so the rest of the app stays consistent.
+const MEAL_TYPE_BUCKETS = [
+  { type: 'breakfast', label: 'Сніданок', icon: '🌅' },
+  { type: 'lunch',     label: 'Обід',     icon: '🍽️' },
+  { type: 'dinner',    label: 'Вечеря',   icon: '🌙' },
+  { type: 'snack',     label: 'Перекус',  icon: '🥗' },
 ];
+
+// Map klopotenko category name → list of meal types it serves.
+// A category can map to multiple types (Другі страви → lunch + dinner) so
+// recipes appear in both meal-type buckets.
+const CATEGORY_TO_MEAL_TYPES = {
+  'Перші страви':    ['lunch'],
+  'Другі страви':    ['lunch', 'dinner'],
+  'М\'ясні':         ['lunch', 'dinner'],
+  'Овочеві':         ['lunch', 'dinner'],
+  'Гарніри':         ['lunch', 'dinner'],
+  'Салати':          ['lunch', 'dinner'],
+  'Закуски':         ['snack'],
+  'Холодні закуски': ['snack'],
+  'Гарячі закуски':  ['snack', 'lunch'],
+};
+
+// Optional display icon per category name. Unknown names get '🍳'.
+const CATEGORY_ICONS = {
+  'Сніданок':                '🌅',
+  'Перші страви':            '🍲',
+  'Другі страви':            '🍽️',
+  'М\'ясні':                 '🥩',
+  'Рибне':                   '🐟',
+  'Овочеві':                 '🥦',
+  'Гарніри':                 '🍚',
+  'Салати':                  '🥗',
+  'Закуски':                 '🥙',
+  'Холодні закуски':         '🍢',
+  'Гарячі закуски':          '🌶️',
+  'Десерти':                 '🍰',
+  'Солодкі страви':          '🍮',
+  'Випічка':                 '🥐',
+  'Дієтичні страви':         '🥬',
+  'Вегетаріанські рецепти':  '🌱',
+  'Сендвічі та бутерброди':  '🥪',
+  'Коктейлі та напої':       '🥤',
+  'Торти':                   '🎂',
+  'Блюда на Пасху':          '🌻',
+};
 
 // ── KLOPOTENKO CATEGORY → MEAL-TYPE TAG MAPPING ──────────────────────────
 // Maps klopotenko's recipeCategory strings (comma-separated) into our
@@ -3141,45 +3194,61 @@ ${ingList}
 
 // ── RECIPES TAB: grouping, rendering, deletion ──────────────────────────
 let _expandedRecipeCats = new Set();
+let _recipeBuckets = [];  // populated by renderRecipesView; handlers index into this
 
-// Group every type='recipe' entry in FOODS into RECIPE_CATEGORIES buckets.
-// A recipe can match multiple categories (klopotenko's recipeCategory is
-// comma-separated) — duplicates across buckets are intentional so users can
-// find a recipe from any of its categories.
+// Group recipes into meal-type buckets (Сніданок/Обід/Вечеря/Перекус) by
+// resolving each recipe's klopotenko category through CATEGORY_TO_MEAL_TYPES.
+// A recipe in 'Другі страви, М'ясні' lands in both lunch AND dinner so users
+// can discover it from either context. Dedupe per bucket via _seen Set.
 function groupRecipesByCategory() {
-  const groups = RECIPE_CATEGORIES.map(c => ({ ...c, recipes: [] }));
-  const other = { key: 'other', label: 'Інше', icon: '📦', recipes: [] };
+  const buckets = MEAL_TYPE_BUCKETS.map(b => ({
+    name: b.label,
+    type: b.type,
+    icon: b.icon,
+    recipes: [],
+    _seen: new Set(),
+  }));
+  const byType = Object.fromEntries(buckets.map(b => [b.type, b]));
+  const addTo = (bucket, key, food) => {
+    if (!bucket || bucket._seen.has(key)) return;
+    bucket._seen.add(key);
+    bucket.recipes.push({ key, food });
+  };
+
   for (const [key, food] of Object.entries(FOODS)) {
     if (!food || food.type !== 'recipe') continue;
-    let matched = false;
-    for (const grp of groups) {
-      if (grp.key === 'breakfast') {
-        // Breakfast is matched by tag or name (klopotenko has no breakfast cat)
-        if ((food.tags || []).includes('breakfast') || /снідан|каш/i.test(food.name)) {
-          grp.recipes.push({ key, food });
-          matched = true;
-        }
-      } else if ((food.category || '').includes(grp.label)) {
-        grp.recipes.push({ key, food });
-        matched = true;
-      }
+
+    // Synthetic breakfast match — no klopotenko category for this; we use
+    // explicit tag OR name keywords (сніданок / каша)
+    if ((food.tags || []).includes('breakfast') || /снідан|каш/i.test(food.name)) {
+      addTo(byType.breakfast, key, food);
     }
-    if (!matched) other.recipes.push({ key, food });
+
+    // Each comma-separated klopotenko category mapped to one or more meal types
+    const cats = (food.category || '').split(',').map(s => s.trim()).filter(Boolean);
+    for (const cat of cats) {
+      if (SKIP_BUCKET_NAMES.has(cat)) continue;
+      const types = CATEGORY_TO_MEAL_TYPES[cat];
+      if (!types) continue;
+      for (const t of types) addTo(byType[t], key, food);
+    }
   }
-  return [...groups, other].filter(g => g.recipes.length);
+
+  buckets.forEach(b => delete b._seen);
+  return buckets.filter(b => b.recipes.length);
 }
 
 window.renderRecipesView = function() {
   const list = document.getElementById('recipesList');
   if (!list) return;
-  const groups = groupRecipesByCategory();
-  if (!groups.length) {
-    list.innerHTML = `<div class="dir-empty">Немає рецептів у довіднику.<br>Натисни <strong>📥 База</strong> у вкладці Продукти, щоб імпортувати ~1600 рецептів klopotenko.com.</div>`;
+  _recipeBuckets = groupRecipesByCategory();
+  if (!_recipeBuckets.length) {
+    list.innerHTML = `<div class="dir-empty">Немає рецептів у довіднику.<br>Натисни <strong>📥 Імпорт бази klopotenko</strong> вище.</div>`;
     return;
   }
-  list.innerHTML = groups.map(grp => {
+  list.innerHTML = _recipeBuckets.map((grp, idx) => {
     const noNutr = grp.recipes.filter(r => !r.food.kcal).length;
-    const isExpanded = _expandedRecipeCats.has(grp.key);
+    const isExpanded = _expandedRecipeCats.has(grp.name);
     const expandedList = isExpanded
       ? `<div class="recipe-cat-list">
           ${grp.recipes.slice(0, 100).map(r => `
@@ -3192,41 +3261,39 @@ window.renderRecipesView = function() {
         </div>`
       : '';
     return `<div class="recipe-cat">
-      <div class="recipe-cat-hdr" onclick="toggleRecipeCat('${grp.key}')">
+      <div class="recipe-cat-hdr" onclick="toggleRecipeCat(${idx})">
         <span class="recipe-cat-icon">${grp.icon}</span>
         <div class="recipe-cat-info">
-          <div class="recipe-cat-name">${grp.label}</div>
+          <div class="recipe-cat-name">${escapeHtml(grp.name)}</div>
           <div class="recipe-cat-meta">${grp.recipes.length} рецептів${noNutr ? ` · <span class="nonutr">${noNutr} без КБЖУ</span>` : ''}</div>
         </div>
         <span class="recipe-cat-arr">${isExpanded ? '▼' : '▶'}</span>
       </div>
       <div class="recipe-cat-actions">
-        ${noNutr ? `<button class="compute-btn" onclick="event.stopPropagation();promptComputeCategoryRecipes('${grp.key}')">🤖 КБЖУ (${noNutr})</button>` : ''}
-        <button class="delete-btn" onclick="event.stopPropagation();confirmDeleteRecipeCategory('${grp.key}')">🗑 Видалити всі</button>
+        ${noNutr ? `<button class="compute-btn" onclick="event.stopPropagation();promptComputeCategoryRecipes(${idx})">🤖 КБЖУ (${noNutr})</button>` : ''}
+        <button class="delete-btn" onclick="event.stopPropagation();confirmDeleteRecipeCategory(${idx})">🗑 Видалити всі</button>
       </div>
       ${expandedList}
     </div>`;
   }).join('');
 };
 
-window.toggleRecipeCat = function(key) {
-  if (_expandedRecipeCats.has(key)) _expandedRecipeCats.delete(key);
-  else _expandedRecipeCats.add(key);
+window.toggleRecipeCat = function(idx) {
+  const grp = _recipeBuckets[idx];
+  if (!grp) return;
+  if (_expandedRecipeCats.has(grp.name)) _expandedRecipeCats.delete(grp.name);
+  else _expandedRecipeCats.add(grp.name);
   renderRecipesView();
 };
 
-// Compute nutrition for a category bucket (uses our group helper to find
-// the actual recipe entries — works even when category labels don't match
-// klopotenko strings exactly, e.g. our 'breakfast' bucket).
-window.promptComputeCategoryRecipes = function(catKey) {
-  const groups = groupRecipesByCategory();
-  const grp = groups.find(g => g.key === catKey);
+window.promptComputeCategoryRecipes = function(idx) {
+  const grp = _recipeBuckets[idx];
   if (!grp) return;
   const todo = grp.recipes.filter(r => !r.food.kcal).map(r => [r.key, r.food]);
   if (!todo.length) { showToast('У цій категорії всі рецепти вже мають КБЖУ'); return; }
   showConfirm({
     icon: '🤖',
-    title: `КБЖУ для "${grp.label}"`,
+    title: `КБЖУ для "${grp.name}"`,
     text: `${todo.length} рецептів буде відправлено на ${AI_PROVIDERS[getAIProvider()].label}. Час: ~${Math.max(1, Math.ceil(todo.length / 30))} хв. Gemini Flash безкоштовний, Claude ~$0.001/рецепт.`,
     actions: [
       { label: 'Запустити', style: 'primary', onClick: () => computeCategoryNutrition(todo).then(() => renderRecipesView()) },
@@ -3235,24 +3302,24 @@ window.promptComputeCategoryRecipes = function(catKey) {
   });
 };
 
-window.confirmDeleteRecipeCategory = function(catKey) {
-  const groups = groupRecipesByCategory();
-  const grp = groups.find(g => g.key === catKey);
+window.confirmDeleteRecipeCategory = function(idx) {
+  const grp = _recipeBuckets[idx];
   if (!grp) return;
   showConfirm({
     icon: '🗑',
-    title: `Видалити "${grp.label}"?`,
+    title: `Видалити "${grp.name}"?`,
     text: `${grp.recipes.length} рецептів буде видалено з довідника. Це не можна відмінити.`,
     actions: [
-      { label: `Видалити ${grp.recipes.length}`, style: 'danger', onClick: () => deleteRecipeCategory(catKey) },
+      { label: `Видалити ${grp.recipes.length}`, style: 'danger', onClick: () => deleteRecipeCategory(grp.name) },
       { label: 'Скасувати', style: 'cancel' },
     ],
   });
 };
 
-async function deleteRecipeCategory(catKey) {
+async function deleteRecipeCategory(bucketName) {
+  // Re-group from current FOODS so we delete the actual current set
   const groups = groupRecipesByCategory();
-  const grp = groups.find(g => g.key === catKey);
+  const grp = groups.find(g => g.name === bucketName);
   if (!grp || !grp.recipes.length) return;
   const overlay = document.getElementById('progOverlay');
   const bar     = document.getElementById('progBar');
