@@ -1595,22 +1595,28 @@ window.applyNewFoodSilpo = async function(idx) {
 window.confirmAutoFill = function() {
   const hasKey = !!getAIKey();
   const provLabel = AI_PROVIDERS[getAIProvider()].label;
+  const dirCount = Object.values(FOODS).filter(f => f && (f.kcal || 0) > 0).length;
   showConfirm({
     icon: '🤖',
     title: 'Автоплан раціону',
     text: hasKey
-      ? `${provLabel} згенерує тиждень з твого профіля (ккал, заборонені продукти, прийоми їжі).`
+      ? `${provLabel} згенерує тиждень з твого профіля. У довіднику зараз ${dirCount} продуктів.`
       : `Ще не налаштовано AI. Зайди в Профіль і додай ключ для ${provLabel}, або синхронізуй довідник без генерації.`,
     actions: [
       hasKey && {
-        label: '✨ Згенерувати тиждень через AI',
+        label: '✨ Згенерувати (вільний режим)',
         style: 'primary',
-        onClick: () => autoFillWeek(true),
+        onClick: () => autoFillWeek('free'),
+      },
+      hasKey && dirCount > 0 && {
+        label: '📚 Згенерувати лише з довідника',
+        style: 'secondary',
+        onClick: () => autoFillWeek('strict'),
       },
       {
         label: '🔄 Тільки синхронізувати довідник',
         style: 'secondary',
-        onClick: () => autoFillWeek(false),
+        onClick: () => autoFillWeek(null),
       },
       { label: 'Скасувати', style: 'cancel' },
     ].filter(Boolean),
@@ -1686,6 +1692,51 @@ function seedFoodsFromMenu() {
 // For every FOODS entry that isn't already linked to Silpo and isn't a manual
 // override, search Silpo and replace the entry's КБЖУ + attach slug/icon/price.
 // Auto-seeded entries (source='auto') get upgraded to source='silpo' on success.
+// For every FOODS entry that isn't already linked to Silpo and isn't a manual
+// override, search Silpo and try to attach a slug. Doesn't overwrite КБЖУ
+// when source is 'auto' from AI — only adds the silpoSlug + price + icon.
+// Returns { upgraded, total } counts.
+async function enrichFoodsFromSilpo(progress) {
+  const candidates = Object.keys(FOODS).filter(k => {
+    const v = FOODS[k];
+    return v && v.source !== 'silpo' && v.source !== 'manual' && !v.silpoSlug;
+  });
+  let upgraded = 0;
+  for (let i = 0; i < candidates.length; i++) {
+    const key = candidates[i];
+    const food = FOODS[key];
+    const name = food.name || key;
+    progress?.(name, i, candidates.length);
+    try {
+      let items = [];
+      for (const query of [name, name.split(' ')[0]]) {
+        const sr = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products?limit=20&search=${encodeURIComponent(query)}`, { headers: { accept: 'application/json' } });
+        const sd = await sr.json();
+        items = sd.items || [];
+        if (items.length) break;
+      }
+      const best = pickBestSilpo(items, name);
+      if (!best) continue;
+      // Attach Silpo metadata; KEEP existing AI/POOL КБЖУ unless food was an
+      // empty stub (kcal === 0). Silpo's nutrition fields are unreliable per
+      // earlier testing.
+      FOODS[key] = {
+        ...food,
+        silpoTitle:      best.title,
+        silpoSlug:       best.slug,
+        silpoIcon:       best.icon || null,
+        silpoPrice:      best.displayPrice ?? null,
+        silpoPriceRatio: best.displayRatio ?? null,
+      };
+      if (db) set(ref(db, 'racion/foods/' + key), FOODS[key]).catch(() => {});
+      upgraded++;
+    } catch(e) {
+      console.warn('[enrich] failed for', name, e);
+    }
+  }
+  return { upgraded, total: candidates.length };
+}
+
 // Push FOODS data into every menu item that has a matching name. Used after
 // enrichment to propagate Silpo-accurate КБЖУ back to the plan.
 function applyFoodsToMenuItems() {
@@ -1715,7 +1766,10 @@ function applyFoodsToMenuItems() {
   }
 }
 
-async function autoFillWeek(applyTemplate = false) {
+// mode = 'free'   → AI may invent new ingredients (prefers existing FOODS)
+// mode = 'strict' → AI must use ONLY existing FOODS entries
+// mode = null     → no generation, just sync directory + Silpo-link new items
+async function autoFillWeek(mode = null) {
   const overlay = document.getElementById('progOverlay');
   const bar     = document.getElementById('progBar');
   const title   = document.getElementById('progTitle');
@@ -1724,53 +1778,70 @@ async function autoFillWeek(applyTemplate = false) {
   bar.style.width = '0%';
 
   try {
-    // Phase 1 — AI generation (only on explicit "Згенерувати" choice).
-    // Calls the active provider for each person, parses JSON response,
-    // writes into MENU and seeds FOODS with AI-provided nutrition.
-    if (applyTemplate) {
+    // Phase 1 — AI generation (when mode is 'free' or 'strict')
+    if (mode === 'free' || mode === 'strict') {
       const provLabel = AI_PROVIDERS[getAIProvider()].label;
       const ids = getPeopleIds();
       for (let i = 0; i < ids.length; i++) {
         const pid = ids[i];
         title.textContent = `${provLabel} генерує план...`;
-        sub.textContent = `${getPersonName(pid)} (${i+1}/${ids.length}) — це може зайняти до 1 хв`;
-        bar.style.width = `${Math.round((i / ids.length) * 60)}%`;
-        // Animate the bar slowly so user sees the modal isn't frozen
+        const modeLabel = mode === 'strict' ? 'лише з довідника' : 'вільний режим';
+        sub.textContent = `${getPersonName(pid)} (${i+1}/${ids.length}) · ${modeLabel} — до 1 хв`;
+        bar.style.width = `${Math.round((i / ids.length) * 50)}%`;
         const slowAnim = setInterval(() => {
           const cur = parseFloat(bar.style.width) || 0;
-          const max = ((i + 0.9) / ids.length) * 60;
-          if (cur < max) bar.style.width = (cur + 0.5) + '%';
+          const max = ((i + 0.9) / ids.length) * 50;
+          if (cur < max) bar.style.width = (cur + 0.4) + '%';
         }, 700);
         try {
-          await generateMenuViaAI(pid);
+          await generateMenuViaAI(pid, mode);
         } finally {
           clearInterval(slowAnim);
         }
       }
     }
 
-    // Phase 2 — make sure every menu item has a FOODS entry (covers manually
-    // edited items between regenerations).
-    bar.style.width = '70%';
+    // Phase 2 — seed FOODS for any items not yet in directory
+    bar.style.width = '55%';
     title.textContent = 'Оновлюємо довідник';
     sub.textContent = '';
     seedFoodsFromMenu();
 
-    // Phase 3 — push current FOODS data back into menu items
-    bar.style.width = '90%';
+    // Phase 3 — auto-link unmapped FOODS entries to Silpo (skip in strict
+    // mode since strict implies user wants only directory state, no enrich)
+    let upgraded = 0, total = 0;
+    if (mode !== 'strict') {
+      title.textContent = 'Привʼязуємо до Сільпо...';
+      const result = await enrichFoodsFromSilpo((name, i, n) => {
+        sub.textContent = name;
+        bar.style.width = `${Math.round(60 + (i / Math.max(1, n)) * 30)}%`;
+      });
+      upgraded = result.upgraded;
+      total    = result.total;
+    }
+
+    // Phase 4 — push (now possibly Silpo-linked) FOODS data into menu items
+    bar.style.width = '95%';
+    sub.textContent = '';
     applyFoodsToMenuItems();
 
     // Save
     bar.style.width = '100%';
     title.textContent = '✓ Готово!';
-    sub.textContent = applyTemplate
-      ? 'План згенеровано через AI. Привʼяжи продукти до Сільпо вручну (🔗 у картці продукту)'
-      : 'Довідник синхронізовано з меню';
+    if (mode === 'free' || mode === 'strict') {
+      sub.textContent = total > 0
+        ? `План створено через AI. Привʼязано до Сільпо: ${upgraded} з ${total}`
+        : 'План створено через AI';
+    } else {
+      sub.textContent = total > 0
+        ? `Довідник синхронізовано. Привʼязано до Сільпо: ${upgraded} з ${total}`
+        : 'Довідник синхронізовано з меню';
+    }
     if (db) set(ref(db, 'racion/menu'), MENU).then(() => setSyncStatus('ok', 'Збережено ✓')).catch(() => {});
     renderMeals();
     renderTotals();
     renderFoodsDir();
-    setTimeout(() => overlay.classList.remove('on'), 2200);
+    setTimeout(() => overlay.classList.remove('on'), 2400);
   } catch (e) {
     overlay.classList.remove('on');
     showConfirm({
@@ -2513,13 +2584,43 @@ function refreshAISettingsUI() {
   }
 }
 
-// Build the prompt for plan generation. Returns a string ready to send.
-function buildPlanPrompt(person) {
+// Build the prompt for plan generation.
+// mode='free'  → AI may invent new ingredients but should prefer existing ones
+// mode='strict' → AI must use ONLY ingredients from FOODS directory
+function buildPlanPrompt(person, mode = 'free') {
   const meals = (person.meals || DEFAULT_MEALS).map(m =>
     `  - ${m.key}: ${m.name} (${m.time})`
   ).join('\n');
   const t = person.targets || {};
-  const fb = (person.forbidden || []).join(', ') || 'немає';
+  const fbForbidden = (person.forbidden || []);
+  const fb = fbForbidden.join(', ') || 'немає';
+
+  // Build directory context — list every FOODS entry with its nutrition,
+  // skipping forbidden items so AI doesn't even see them.
+  const isForbidden = name => fbForbidden.some(f =>
+    String(name||'').toLowerCase().includes(String(f).toLowerCase())
+  );
+  const dirItems = Object.values(FOODS)
+    .filter(f => f && f.name && (f.kcal || 0) > 0 && !isForbidden(f.name))
+    .map(f => `  - ${f.name}: ${Math.round(f.kcal)} ккал, ${(f.protein||0)}г Б, ${(f.fat||0)}г Ж, ${(f.carbs||0)}г В`);
+
+  let dirSection = '';
+  if (dirItems.length) {
+    if (mode === 'strict') {
+      dirSection = `\n\n⚠️ СУВОРИЙ РЕЖИМ ⚠️
+ВИКОРИСТОВУЙ ВИКЛЮЧНО продукти з цього довідника. Бери ТОЧНО ці значення нутриції на 100г.
+НЕ ВИГАДУЙ нові продукти, навіть якщо здається що чогось бракує — комбінуй що є.
+
+Доступні продукти (всі КБЖУ на 100г):
+${dirItems.join('\n')}`;
+    } else {
+      dirSection = `\n\nВ довіднику вже є ці продукти. НАДАВАЙ ЇМ ПЕРЕВАГУ якщо вони підходять — використовуй ТОЧНО ці назви і значення нутриції щоб не дублювати:
+${dirItems.join('\n')}
+
+Можеш додавати нові продукти ТІЛЬКИ якщо без них не вийде збалансованого тижня.`;
+    }
+  }
+
   return `Згенеруй тижневий план харчування для людини. Поверни ВИКЛЮЧНО валідний JSON, без жодного тексту до або після.
 
 Профіль:
@@ -2527,19 +2628,19 @@ function buildPlanPrompt(person) {
 - Вік: ${person.age || 'не вказано'}
 - Вага: ${person.weight ? person.weight + ' кг' : 'не вказано'}
 - Денна ціль: ${t.kcal || 2000} ккал, ${t.protein || 150}г білка, ${t.fat || 65}г жирів, ${t.carbs || 200}г вуглеводів
-- Заборонені продукти (НЕ використовувати): ${fb}
+- Заборонені продукти (НЕ використовувати взагалі): ${fb}
 - Прийоми їжі (точно ці слоти, не змінюй ключі):
-${meals}
+${meals}${dirSection}
 
 Вимоги:
 1. Згенеруй РІВНО 7 днів (weekday 0=Неділя, 1=Понеділок, ..., 6=Субота).
 2. Кожен день має містити кожен прийом їжі зі списку вище (за key).
-3. Кожен прийом має 2-5 інгредієнтів. Назви українською, реальні продукти що можна купити в Україні.
-4. Порції — реалістичні (наприклад 150г куряче філе, 100г гречки, 100г огірка).
+3. Кожен прийом має 2-5 інгредієнтів. Назви українською, реальні продукти.
+4. Порції — реалістичні (150г куряче філе, 100г гречки, 100г огірка).
 5. Денна сума ккал має бути близькою до цілі ±100 ккал.
-6. Різноманітність — не повторюй однакові прийоми кожного дня. Використовуй різні білки, крупи, овочі, фрукти.
-7. ВРАХУЙ заборонені продукти — не використовуй їх взагалі і не використовуй варіації (наприклад "лосось" забороняє і "стейк лосося", і "філе лосося").
-8. Кожен item має містити ТОЧНІ значення per-100g — не вигадуй, використовуй реальні харчові дані.
+6. Різноманітність — не повторюй однакові прийоми кожного дня.
+7. ВРАХУЙ заборонені продукти і їх варіації (наприклад "лосось" забороняє "стейк лосося").
+8. Кожен item має містити ТОЧНІ значення per-100g — реальні харчові дані.
 
 Формат відповіді (точно такий, без коментарів):
 {
@@ -2648,10 +2749,10 @@ function parseAIPlanResponse(text) {
 }
 
 // Call AI for one person, parse, write into MENU[pid]
-async function generateMenuViaAI(pid) {
+async function generateMenuViaAI(pid, mode = 'free') {
   const person = getPerson(pid);
   if (!person) return;
-  const prompt = buildPlanPrompt(person);
+  const prompt = buildPlanPrompt(person, mode);
   const raw = await callAIProvider(prompt);
   const data = parseAIPlanResponse(raw);
   if (!data?.days || !Array.isArray(data.days)) {
