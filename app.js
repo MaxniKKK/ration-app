@@ -1317,28 +1317,30 @@ window.confirmDeletePCardFood = function(key) {
 };
 
 // ─── MANUAL REMAP: pick a different Silpo product for a directory entry ──
-// Fill КБЖУ for a directory entry from the built-in INGREDIENT_POOL ("AI knowledge").
-// Does not touch silpoSlug if already linked — only updates the nutrition fields.
-window.applyAIFillFood = function(key) {
+// Fill КБЖУ for a directory entry by asking the active AI provider for
+// per-100g nutrition of this product. Does not touch silpoSlug if already
+// linked — only updates the nutrition fields.
+window.applyAIFillFood = async function(key) {
   const food = FOODS[key];
   if (!food) return;
-  const known = findInPool(food.name);
-  if (!known) {
-    showToast('AI не має даних для "' + food.name + '"', 'err');
-    return;
+  showAIBusy('🤖 AI шукає КБЖУ...', food.name);
+  try {
+    const nutr = await fetchNutritionFromAI(food.name);
+    FOODS[key] = { ...food, ...nutr };
+    if (db) set(ref(db, 'racion/foods/' + key), FOODS[key]).catch(() => {});
+    hideAIBusy();
+    renderFoodsDir();
+    showToast('КБЖУ заповнено через AI ✓');
+    setTimeout(() => openPCard(key), 150);
+  } catch (e) {
+    hideAIBusy();
+    showConfirm({
+      icon: '⚠️',
+      title: 'Помилка AI',
+      text: e.message || String(e),
+      actions: [{ label: 'Зрозуміло', style: 'primary' }],
+    });
   }
-  FOODS[key] = {
-    ...food,
-    kcal:    known.k,
-    protein: known.p ?? 0,
-    fat:     known.f ?? 0,
-    carbs:   known.c ?? 0,
-  };
-  if (db) set(ref(db, 'racion/foods/' + key), FOODS[key]).catch(() => {});
-  renderFoodsDir();
-  showToast('КБЖУ заповнено з AI ✓');
-  // Re-open card with fresh data
-  setTimeout(() => openPCard(key), 150);
 };
 
 window.openRemap = function(key) {
@@ -1567,18 +1569,30 @@ window.startAddFood = function() {
 // can attach silpoSlug/icon/title when persisting the new entry.
 let _newFoodSilpoData = null;
 
-window.prefillNewFoodFromAI = function() {
+window.prefillNewFoodFromAI = async function() {
   const name = document.getElementById('de_name')?.value.trim();
   if (!name) { showToast('Спочатку введи назву продукту'); return; }
-  const known = findInPool(name);
-  if (!known) { showToast('AI не має даних для "' + name + '"', 'err'); return; }
-  document.getElementById('de_kcal').value = known.k;
-  document.getElementById('de_prot').value = known.p ?? 0;
-  document.getElementById('de_fat').value  = known.f ?? 0;
-  document.getElementById('de_carb').value = known.c ?? 0;
-  _newFoodSilpoData = null;
-  document.getElementById('de_silpo_info').style.display = 'none';
-  showToast('Заповнено з AI ✓');
+  showAIBusy('🤖 AI шукає КБЖУ...', name);
+  try {
+    const nutr = await fetchNutritionFromAI(name);
+    document.getElementById('de_kcal').value = nutr.kcal;
+    document.getElementById('de_prot').value = nutr.protein;
+    document.getElementById('de_fat').value  = nutr.fat;
+    document.getElementById('de_carb').value = nutr.carbs;
+    _newFoodSilpoData = null;
+    const info = document.getElementById('de_silpo_info');
+    if (info) info.style.display = 'none';
+    hideAIBusy();
+    showToast('Заповнено через AI ✓');
+  } catch (e) {
+    hideAIBusy();
+    showConfirm({
+      icon: '⚠️',
+      title: 'Помилка AI',
+      text: e.message || String(e),
+      actions: [{ label: 'Зрозуміло', style: 'primary' }],
+    });
+  }
 };
 
 window.prefillNewFoodFromSilpo = function() {
@@ -2802,6 +2816,49 @@ async function callAIProvider(prompt) {
   }
 
   throw new Error('Невідомий AI провайдер: ' + provider);
+}
+
+// Ask the active AI provider for per-100g nutrition of a single product.
+// Returns { kcal, protein, fat, carbs } or throws on failure.
+async function fetchNutritionFromAI(name) {
+  if (!getAIKey()) throw new Error('Не налаштовано AI ключ. Зайди в Профіль → AI генератор.');
+  const prompt = `Поверни ВИКЛЮЧНО валідний JSON без жодного тексту до або після — харчова цінність продукту "${name}" на 100г.
+
+Формат: {"kcal": число, "protein": число, "fat": число, "carbs": число}
+
+Усі поля обовʼязкові, числа без одиниць виміру. Якщо це український продукт — використовуй стандартні значення для України. Якщо точно невідомо — дай найбільш ймовірну оцінку.`;
+  const raw = await callAIProvider(prompt);
+  // Reuse the JSON-extraction logic from the plan parser
+  let t = String(raw || '').trim();
+  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fence) t = fence[1].trim();
+  const first = t.indexOf('{'), last = t.lastIndexOf('}');
+  if (first >= 0 && last > first) t = t.slice(first, last + 1);
+  let data;
+  try { data = JSON.parse(t); }
+  catch (e) { throw new Error('AI повернув некоректний JSON: ' + t.slice(0, 120)); }
+  const result = {
+    kcal:    Number(data.kcal)    || 0,
+    protein: Number(data.protein) || 0,
+    fat:     Number(data.fat)     || 0,
+    carbs:   Number(data.carbs)   || 0,
+  };
+  if (!result.kcal) throw new Error('AI не зміг визначити калорійність для "' + name + '"');
+  return result;
+}
+
+// Tiny progress overlay helpers used by single-shot AI calls
+// (per-product nutrition fetch). The big plan generator still uses
+// the same overlay element directly with its own progress tracking.
+function showAIBusy(title, sub) {
+  const o = document.getElementById('progOverlay');
+  document.getElementById('progTitle').textContent = title || '🤖 AI...';
+  document.getElementById('progSub').textContent   = sub || '';
+  document.getElementById('progBar').style.width   = '50%';
+  o.classList.add('on');
+}
+function hideAIBusy() {
+  document.getElementById('progOverlay').classList.remove('on');
 }
 
 // Strip ```json ... ``` fences and any preamble, parse JSON
