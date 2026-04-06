@@ -323,6 +323,15 @@
       .dir-src-info{font-size:10px;color:var(--muted);padding:6px 0 2px;line-height:1.4;}
       .dir-src-info a{color:var(--blue);text-decoration:none;}
       .item-src-a{font-size:9px;color:var(--blue);margin-left:4px;vertical-align:middle;opacity:.75;text-decoration:none;}
+      /* BULK SELECT */
+      .dir-sel-bar{display:none;align-items:center;gap:8px;padding:8px 16px;background:var(--card2);border-bottom:1px solid var(--border);}
+      .dir-sel-bar.on{display:flex;}
+      .dir-sel-count{font-size:12px;color:var(--text);flex:1;}
+      .dir-del-sel{padding:7px 14px;background:#ef4444;border:none;border-radius:9px;font-family:'Unbounded',sans-serif;font-size:9px;font-weight:700;color:#fff;cursor:pointer;white-space:nowrap;}
+      .dir-sel-all-btn{padding:7px 12px;background:none;border:1.5px solid var(--border);border-radius:9px;font-family:'Unbounded',sans-serif;font-size:9px;color:var(--muted);cursor:pointer;white-space:nowrap;}
+      .dir-cancel-sel{padding:7px 12px;background:none;border:1.5px solid var(--border);border-radius:9px;font-family:'Unbounded',sans-serif;font-size:9px;color:var(--muted);cursor:pointer;}
+      .dir-row-cb{width:18px;height:18px;accent-color:var(--accent2);cursor:pointer;flex-shrink:0;}
+      .dir-row.sel{background:rgba(255,107,53,.07);border-radius:8px;}
       .item-src-a:hover{opacity:1;}
       .item-src-dir{font-size:9px;color:var(--muted);margin-left:4px;vertical-align:middle;cursor:pointer;}
       .fc{background:var(--card);border-radius:12px;border:1px solid var(--border);padding:13px;margin-bottom:8px;cursor:pointer;transition:border-color .2s;active:border-color:var(--accent);}
@@ -527,7 +536,16 @@
         <div class="dir-bar">
           <input class="dir-filter" id="dirFilter" placeholder="Фільтр..." oninput="renderFoodsDir()">
           <button class="dir-add-btn" onclick="startAddFood()">+ Додати</button>
-          <button class="dir-add-btn" style="background:var(--card2);color:var(--muted);border:1.5px solid var(--border)" onclick="autoFillWeek(false)" title="Оновити КБЖУ всіх продуктів з Сільпо">🔄</button>
+          <button class="dir-add-btn" style="background:var(--card2);color:var(--muted);border:1.5px solid var(--border)" onclick="toggleDirSelectMode()" id="btnDirSel">☑ Обрати</button>
+          <button class="dir-add-btn" style="background:var(--card2);color:var(--muted);border:1.5px solid var(--border)" onclick="autoFillWeek(false)" title="Оновити з Сільпо">🔄</button>
+        </div>
+        <!-- bulk action bar -->
+        <div class="dir-sel-bar" id="dirSelBar">
+          <span class="dir-sel-count" id="dirSelCount">0 обрано</span>
+          <button class="dir-sel-all-btn" onclick="dirSelectAll()">Всі</button>
+          <button class="dir-sel-all-btn" onclick="dirDeselectAll()">Жодного</button>
+          <button class="dir-del-sel" onclick="deleteSelected()">🗑 Видалити</button>
+          <button class="dir-cancel-sel" onclick="toggleDirSelectMode()">✕</button>
         </div>
         <div class="dir-list" id="dirList"></div>
       </div>
@@ -2028,7 +2046,16 @@
                 ? `<a class="dir-link-a" href="https://silpo.ua/product/${e.silpoSlug}" target="_blank">↗ Сільпо</a>`
                 : `<span class="dir-link-off" title="Дані відредаговано вручну">✎ ред.</span>`)
             : '';
-          return `<div class="dir-row">
+          const isSel = _dirSelected.has(e.key);
+          const cbHtml = _dirSelectMode
+            ? `<input type="checkbox" class="dir-row-cb" data-key="${e.key}" ${isSel ? 'checked' : ''} onchange="toggleDirItem('${e.key}')">`
+            : '';
+          const actionsHtml = _dirSelectMode ? '' : `<div class="dir-actions">
+              <button class="dir-btn" onclick="startEditFood('${e.key}')">✏️</button>
+              <button class="dir-btn" onclick="deleteFoodItem('${e.key}')">🗑️</button>
+            </div>`;
+          return `<div class="dir-row${isSel ? ' sel' : ''}" onclick="${_dirSelectMode ? `toggleDirItem('${e.key}')` : ''}">
+            ${cbHtml}
             <div class="dir-names">
               <div class="dir-alias">${e.name}</div>
               ${showSilpoTitle ? `<div class="dir-stitle">${e.silpoTitle}</div>` : ''}
@@ -2039,11 +2066,8 @@
               <span>Ж${+(e.fat).toFixed(1)}</span>
               <span>В${+(e.carbs).toFixed(1)}</span>
             </div>
-            ${linkHtml}
-            <div class="dir-actions">
-              <button class="dir-btn" onclick="startEditFood('${e.key}')">✏️</button>
-              <button class="dir-btn" onclick="deleteFoodItem('${e.key}')">🗑️</button>
-            </div>
+            ${_dirSelectMode ? '' : linkHtml}
+            ${actionsHtml}
           </div>`;
         }).join('');
       };
@@ -2077,6 +2101,69 @@
       window.cancelEditFood = function() {
         _editingFoodKey = null;
         renderFoodsDir();
+      };
+
+      // ── BULK SELECT ─────────────────────────────────────────────────────────
+      let _dirSelectMode = false;
+      let _dirSelected = new Set();
+
+      window.toggleDirSelectMode = function() {
+        _dirSelectMode = !_dirSelectMode;
+        _dirSelected.clear();
+        document.getElementById('dirSelBar').classList.toggle('on', _dirSelectMode);
+        document.getElementById('btnDirSel').style.color = _dirSelectMode ? 'var(--accent2)' : '';
+        document.getElementById('btnDirSel').style.borderColor = _dirSelectMode ? 'var(--accent2)' : '';
+        renderFoodsDir();
+      };
+
+      window.toggleDirItem = function(key) {
+        if (_dirSelected.has(key)) _dirSelected.delete(key);
+        else _dirSelected.add(key);
+        _updateSelCount();
+        // Toggle .sel class without re-rendering
+        const rows = document.querySelectorAll('.dir-row');
+        rows.forEach(r => {
+          const cb = r.querySelector('.dir-row-cb');
+          if (cb?.dataset.key === key) {
+            cb.checked = _dirSelected.has(key);
+            r.classList.toggle('sel', _dirSelected.has(key));
+          }
+        });
+      };
+
+      function _updateSelCount() {
+        document.getElementById('dirSelCount').textContent = `${_dirSelected.size} обрано`;
+      }
+
+      window.dirSelectAll = function() {
+        const filter = (document.getElementById('dirFilter')?.value || '').toLowerCase();
+        Object.entries(FOODS).forEach(([key, val]) => {
+          const name = (val.name || key).toLowerCase();
+          if (!filter || name.includes(filter)) _dirSelected.add(key);
+        });
+        _updateSelCount();
+        renderFoodsDir();
+      };
+
+      window.dirDeselectAll = function() {
+        _dirSelected.clear();
+        _updateSelCount();
+        renderFoodsDir();
+      };
+
+      window.deleteSelected = function() {
+        if (!_dirSelected.size) { showToast('Нічого не обрано'); return; }
+        if (!confirm(`Видалити ${_dirSelected.size} продуктів з довідника?`)) return;
+        const batch = [];
+        _dirSelected.forEach(key => {
+          delete FOODS[key];
+          if (db) batch.push(set(ref(db, 'racion/foods/' + key), null).catch(() => {}));
+        });
+        Promise.all(batch);
+        _dirSelected.clear();
+        _updateSelCount();
+        renderFoodsDir();
+        showToast(`Видалено ✓`);
       };
 
       window.openDirItem = function(key) {
