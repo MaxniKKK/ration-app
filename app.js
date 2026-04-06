@@ -1319,6 +1319,9 @@ window.applyAIFillFood = function(key) {
 window.openRemap = function(key) {
   _remapKey = key;
   _msCtx = null;
+  // Close the product card so the search modal isn't covered by it.
+  // applyRemap re-opens the card after a successful pick.
+  document.getElementById('pcardModal').classList.remove('on');
   const food = FOODS[key];
   document.getElementById('msInp').value = food?.name || '';
   document.getElementById('msRes').innerHTML = `<div style="text-align:center;padding:20px;color:var(--muted);font-size:12px">Введи назву і натисни Шукати,<br>щоб обрати інший продукт з Сільпо</div>`;
