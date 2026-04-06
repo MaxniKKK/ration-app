@@ -1380,7 +1380,10 @@ window.openPCard = function(key) {
           </li>`;
         }).join('')}
       </ul>
-      <div class="pcard-ing-meta">${matchedCount} в довіднику · ${optionalLinked + optionalCount} опціональних · ${missingCount} відсутні · ${stapleCount} базові${food.sourceUrl ? ` · <a href="${food.sourceUrl}" target="_blank" onclick="event.stopPropagation()" style="color:var(--blue);text-decoration:none">↗ klopotenko</a>` : ''}</div>
+      <div class="pcard-ing-meta">
+        ${matchedCount} в довіднику · ${optionalLinked + optionalCount} опціональних · ${missingCount} відсутні · ${stapleCount} базові${food.sourceUrl ? ` · <a href="${food.sourceUrl}" target="_blank" onclick="event.stopPropagation()" style="color:var(--blue);text-decoration:none">↗ klopotenko</a>` : ''}
+        ${food.computedFromIngs ? `<br><span style="color:var(--accent)">✓ КБЖУ розраховано з лінкованих продуктів${food.totalG ? ` · загальна вага ${food.totalG}г` : ''}</span>` : ''}
+      </div>
     `;
     ingsEl.style.display = '';
   } else {
@@ -1474,8 +1477,10 @@ window.applyManualLink = function(idx) {
     optional: ing.kind === 'optional',
     manual: true,
   };
+  // Recompute KБЖУ now that another product is linked
+  recomputeRecipeNutrition(recipe);
   if (db) {
-    set(ref(db, 'racion/foods/' + ctx.recipeKey + '/linkedIngredients'), recipe.linkedIngredients).catch(() => {});
+    set(ref(db, 'racion/foods/' + ctx.recipeKey), recipe).catch(() => {});
   }
 
   _remapKey = null;
@@ -1535,20 +1540,18 @@ window.saveRecipeIngs = function(key) {
   _snapshotIngsDraft();
   const food = FOODS[key];
   if (!food) return;
-  // Drop empty rows
   const newIngs = (_pcardIngsDraft || []).map(s => String(s).trim()).filter(Boolean);
   food.ingredients = newIngs;
-  // Recompute coverage against current product directory
+  // Recompute linkedIngredients against current product directory
   const products = Object.entries(FOODS)
     .filter(([k, f]) => f && f.type !== 'recipe' && f.name)
     .map(([k, f]) => ({ key: k, name: f.name }));
   const cov = analyzeRecipeCoverage(food, products);
   food.linkedIngredients = cov.linked;
   food.whitelisted = cov.ratio >= RECIPE_WHITELIST_THRESHOLD;
-  // Persist
-  if (db) {
-    set(ref(db, 'racion/foods/' + key), food).catch(() => {});
-  }
+  // Recompute KБЖУ from linked products' nutrition
+  recomputeRecipeNutrition(food);
+  if (db) set(ref(db, 'racion/foods/' + key), food).catch(() => {});
   _pcardEditingIngs = false;
   _pcardIngsDraft = null;
   _pcardIngsEditKey = null;
@@ -3672,6 +3675,56 @@ function ingredientMatchesProduct(ingredientText, productName) {
   return shared >= required;
 }
 
+// Pull a usable gram amount out of a raw klopotenko ingredient string.
+// "500 г свинини" → 500, "1.5 кг картоплі" → 1500, "200 мл молока" → 200,
+// "2 шт яйце" → ~110 (eggs ≈ 55g each). Returns 0 if no number found.
+function gramsFromRaw(raw) {
+  if (!raw) return 0;
+  const s = String(raw).toLowerCase();
+  const m = s.match(/(\d+(?:[.,]\d+)?)\s*(кг|мл|л|шт|г)?/);
+  if (!m) return 0;
+  const num = parseFloat(m[1].replace(',', '.'));
+  if (!num || isNaN(num)) return 0;
+  const unit = m[2] || 'г';
+  if (unit === 'кг') return num * 1000;
+  if (unit === 'л')  return num * 1000;
+  if (unit === 'шт') return num * (s.includes('яйц') ? 55 : 60);
+  return num; // г / мл
+}
+
+// Recompute a recipe's KБЖУ from its linkedIngredients by summing the
+// nutrition of each linked product weighted by the parsed gram amount.
+// Stores values as per-100g of the total ingredient weight (matches the
+// product convention so menu generation can use the same arithmetic).
+// Also stores totalG so a serving size can be computed downstream.
+// Returns true if nutrition was successfully recomputed, false otherwise.
+function recomputeRecipeNutrition(recipe) {
+  const linked = recipe?.linkedIngredients;
+  if (!Array.isArray(linked)) return false;
+  let totalG = 0, totalKcal = 0, totalP = 0, totalF = 0, totalC = 0;
+  for (const l of linked) {
+    if (l.kind !== 'linked' || !l.productKey) continue;
+    const product = FOODS[l.productKey];
+    if (!product || !(product.kcal > 0)) continue;
+    const grams = gramsFromRaw(l.raw);
+    if (!grams) continue;
+    totalG    += grams;
+    totalKcal += grams * (product.kcal    || 0) / 100;
+    totalP    += grams * (product.protein || 0) / 100;
+    totalF    += grams * (product.fat     || 0) / 100;
+    totalC    += grams * (product.carbs   || 0) / 100;
+  }
+  if (!totalG) return false;
+  recipe.kcal     = Math.round(totalKcal / totalG * 100);
+  recipe.protein  = +(totalP / totalG * 100).toFixed(1);
+  recipe.fat      = +(totalF / totalG * 100).toFixed(1);
+  recipe.carbs    = +(totalC / totalG * 100).toFixed(1);
+  recipe.totalG       = Math.round(totalG);
+  recipe.totalKcal    = Math.round(totalKcal);
+  recipe.computedFromIngs = true;
+  return true;
+}
+
 // For one recipe: how many of its non-staple ingredients map to a product
 // in FOODS? Pantry staples (сіль, перець, спеції, etc) are excluded from
 // both matched and total — they're assumed always available.
@@ -3750,13 +3803,14 @@ window.runRecipeCoverageAnalysis = function() {
     recipe._coverage = cov;
     const isWhite = cov.ratio >= RECIPE_WHITELIST_THRESHOLD;
     recipe._whitelisted = isWhite;
-    // Persist linked ingredients + whitelist flag onto the recipe so the
-    // card can render product links and the strict generator can pre-filter
-    // without re-running the analysis on every page load.
     recipe.linkedIngredients = cov.linked;
     recipe.whitelisted = isWhite;
-    fbBatch['racion/foods/' + key + '/linkedIngredients'] = cov.linked;
-    fbBatch['racion/foods/' + key + '/whitelisted']       = isWhite;
+    // Recompute KБЖУ from linked products' nutrition (overwrites stored values
+    // when at least one ingredient is linked)
+    recomputeRecipeNutrition(recipe);
+    // Persist the WHOLE recipe entry so the recomputed kcal/protein/fat/carbs
+    // and totalG/totalKcal/computedFromIngs flags survive reloads.
+    fbBatch['racion/foods/' + key] = recipe;
     if (isWhite) whitelisted++;
     for (const m of cov.missing) {
       const base = parseIngredientName(m);
