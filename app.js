@@ -3303,9 +3303,9 @@ function parseIngredientName(raw) {
 }
 
 // Adjective stems that DON'T change staple-status of a multi-word phrase
-// (used in isPantryStaple). 'лавровий лист' should be a staple because
-// 'лавр' is — the 'лист' is just the noun the adjective qualifies.
+// (used in isPantryStaple). 'лавровий лист' is a staple because 'лавр' is.
 const STAPLE_MODIFIER_STEMS = new Set([
+  // Spice modifiers / phrases
   'лавр', 'лавров', 'лист',
   'червон', 'чорн', 'біл', 'жовт', 'зелен', 'темн', 'світл',
   'молот', 'мелен', 'мел',
@@ -3314,6 +3314,13 @@ const STAPLE_MODIFIER_STEMS = new Set([
   'запашн', 'духм',
   'солодк', 'гострий', 'гірк', 'кисл',
   'сушен', 'свіж',
+  // Oil-type adjectives — 'соняшникова олія' = staple because 'олі' is
+  'соняшни', 'соняшн', 'оливков', 'оливк', 'кунжут', 'льнян', 'кокос', 'кокосов',
+  'арахіс', 'арахісо', 'кукуруд', 'рослин', 'тваринн', 'верш',
+  // 'до смаку' / 'за смаком' tail — gets parsed as 'смак', means 'to taste'
+  'смак', 'смаку', 'смаком',
+  // Sugar forms — 'цукрова пудра' = staple because 'цукр' is
+  'пудр',
 ]);
 
 // Map post-stem irregular forms onto a canonical stem so different
