@@ -3203,6 +3203,139 @@ ${ingList}
   setTimeout(() => overlay.classList.remove('on'), 2500);
 }
 
+// ── RECIPE INGREDIENT COVERAGE ──────────────────────────────────────────
+// Parse a raw klopotenko ingredient string ("500 г свинини", "2 ст. л. олії",
+// "4-5 шт. картоплі") into a normalized base name suitable for matching.
+function parseIngredientName(raw) {
+  let s = String(raw || '').toLowerCase();
+  // Decode HTML entities (klopotenko has &#8217; for apostrophe)
+  s = s.replace(/&#8217;|&rsquo;|&apos;/g, "'").replace(/&[a-z#0-9]+;/gi, '');
+  // Strip leading numbers/ranges/fractions
+  s = s.replace(/^[\d\s,.\/–\-]+/, '');
+  // Strip leading units (covers most klopotenko strings)
+  s = s.replace(/^(?:г|кг|мл|л|шт(?:уки?|ук)?|ч\.?\s*л\.?|ст\.?\s*л\.?|столов\w*\s*ложк\w*|чайн\w*\s*ложк\w*|стакан\w*|жмен\w*|пучк\w*|пуч[аоі]к\w*|щіпк\w*|зубчик\w*|зубч|пакет\w*|банк\w*|пляшк\w*|за\s*смак\w*|до\s*смак\w*)[\s\.,]*/i, '');
+  // Strip parentheticals
+  s = s.replace(/\([^)]*\)/g, '');
+  // Strip leading common adjective stems (свіжий, варений, etc) — single pass
+  s = s.replace(/^(?:свіж|варен|тушков|смажен|запечен|сир|сухий|сушен|молод|стиглий|маринован|солон|солодк|гострий|очищ|нарізан|подрібн|круп|велик|тверд|червон|зелен|жовт|білий|чорний|темн|світл|середн)\w*\s+/i, '');
+  return s.trim();
+}
+
+// Cyrillic word stem — strip common inflection suffixes and normalize.
+// Not a real stemmer, just enough to match форм like 'картопля'/'картоплі'/'картоплю'.
+function stemUk(word) {
+  let w = String(word || '').toLowerCase().replace(/[ʼ'']/g, '');
+  if (w.length <= 4) return w;
+  // Drop trailing inflection: и/і/у/ю/о/а/ї/є/ой/ою/ів/ам/ів/ями/ями
+  w = w.replace(/(?:ами|ями|ому|ого|ями|ою|ам|ів|ій|ої|ом|их|ах|ят|ям|ою|ия|ій|їй|ою|ам)$/, '');
+  w = w.replace(/[аиіїоеєуюяь]$/, '');
+  return w.slice(0, 6);
+}
+
+// Compute the set of significant stems for a piece of text (words len > 3).
+function stemsOf(text) {
+  return new Set(
+    String(text || '')
+      .toLowerCase()
+      .replace(/[^а-яіїєґʼ'\s]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 3)
+      .map(stemUk)
+      .filter(Boolean)
+  );
+}
+
+// Match an ingredient string against a product name. Heuristic:
+// any non-trivial stem in the parsed ingredient that also appears in
+// the product name = match.
+function ingredientMatchesProduct(ingredientText, productName) {
+  const ing = parseIngredientName(ingredientText);
+  if (!ing) return false;
+  const ingStems = stemsOf(ing);
+  const prodStems = stemsOf(productName);
+  if (!ingStems.size || !prodStems.size) return false;
+  for (const s of ingStems) {
+    if (prodStems.has(s)) return true;
+    // Also try prefix overlap (4+ chars) for Ukrainian forms
+    for (const p of prodStems) {
+      if (s.length >= 4 && p.length >= 4 && (s.startsWith(p.slice(0, 4)) || p.startsWith(s.slice(0, 4)))) return true;
+    }
+  }
+  return false;
+}
+
+// For one recipe: how many of its ingredients map to a product in FOODS?
+function analyzeRecipeCoverage(recipe, productEntries) {
+  const ings = recipe.ingredients || [];
+  if (!ings.length) return { matched: 0, total: 0, ratio: 0, missing: [] };
+  let matched = 0;
+  const missing = [];
+  for (const ing of ings) {
+    let found = false;
+    for (const prod of productEntries) {
+      if (ingredientMatchesProduct(ing, prod.name)) { found = true; break; }
+    }
+    if (found) matched++;
+    else missing.push(ing);
+  }
+  return { matched, total: ings.length, ratio: matched / ings.length, missing };
+}
+
+// Whitelist threshold — recipes with coverage ≥ this become available for the
+// strict-mode generator. 0.7 = 70% of ingredients must map to known products.
+const RECIPE_WHITELIST_THRESHOLD = 0.7;
+
+let _recipeWhitelistFilterOn = false;
+
+window.runRecipeCoverageAnalysis = function() {
+  const products = Object.entries(FOODS)
+    .filter(([k, f]) => f && f.type !== 'recipe' && f.name)
+    .map(([k, f]) => ({ key: k, name: f.name }));
+  if (!products.length) {
+    showConfirm({
+      icon: '⚠️',
+      title: 'Немає продуктів',
+      text: 'Спочатку додай продукти в довідник через вкладку Продукти. Інакше нічого з чим зіставляти.',
+      actions: [{ label: 'Зрозуміло', style: 'primary' }],
+    });
+    return;
+  }
+
+  const recipes = Object.entries(FOODS).filter(([k, f]) => f?.type === 'recipe');
+  let whitelisted = 0;
+  // Count missing ingredient frequencies — useful TODO for the user
+  const missingFreq = new Map();
+  for (const [key, recipe] of recipes) {
+    const cov = analyzeRecipeCoverage(recipe, products);
+    recipe._coverage = cov;
+    const isWhite = cov.ratio >= RECIPE_WHITELIST_THRESHOLD;
+    recipe._whitelisted = isWhite;
+    if (isWhite) whitelisted++;
+    for (const m of cov.missing) {
+      const base = parseIngredientName(m);
+      if (base) missingFreq.set(base, (missingFreq.get(base) || 0) + 1);
+    }
+  }
+
+  // Top 12 missing ingredients
+  const top = [...missingFreq.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12);
+  const topText = top.map(([n, c]) => `• ${n} (${c})`).join('\n');
+
+  showConfirm({
+    icon: '🔬',
+    title: 'Аналіз покриття',
+    text: `${whitelisted} з ${recipes.length} рецептів мають ≥70% інгредієнтів у довіднику (${products.length} продуктів).\n\nНайчастіше відсутні:\n${topText || '—'}`,
+    actions: [{ label: 'Зрозуміло', style: 'primary' }],
+  });
+  renderRecipesView();
+};
+
+window.toggleRecipeWhitelistFilter = function() {
+  _recipeWhitelistFilterOn = !_recipeWhitelistFilterOn;
+  document.getElementById('recCovFilter').classList.toggle('on', _recipeWhitelistFilterOn);
+  renderRecipesView();
+};
+
 // ── RECIPES TAB: grouping, rendering, deletion ──────────────────────────
 let _expandedRecipeCats = new Set();
 let _recipeBuckets = [];  // populated by renderRecipesView; handlers index into this
@@ -3223,6 +3356,7 @@ function groupRecipesByCategory() {
 
   for (const [key, food] of Object.entries(FOODS)) {
     if (!food || food.type !== 'recipe') continue;
+    if (_recipeWhitelistFilterOn && !food._whitelisted) continue;
     const tags = food.tags || [];
     if (!tags.length) continue;
     for (const t of tags) {
@@ -3232,6 +3366,15 @@ function groupRecipesByCategory() {
   }
 
   return buckets.filter(b => b.recipes.length);
+}
+
+// Build the small coverage badge HTML for a recipe item.
+function recipeCovBadge(food) {
+  const cov = food._coverage;
+  if (!cov || !cov.total) return '';
+  const pct = Math.round(cov.ratio * 100);
+  const cls = pct >= 70 ? 'full' : pct >= 40 ? 'partial' : 'low';
+  return `<span class="recipe-cov-badge ${cls}" title="${cov.matched} з ${cov.total} інгредієнтів у довіднику">${pct}%</span>`;
 }
 
 window.renderRecipesView = function() {
@@ -3251,6 +3394,7 @@ window.renderRecipesView = function() {
             <div class="recipe-item" onclick="openPCard('${r.key}')">
               <span class="recipe-item-kcal${r.food.kcal ? '' : ' empty'}">${r.food.kcal ? Math.round(r.food.kcal) : '—'}</span>
               <span class="recipe-item-name">${escapeHtml(r.food.name)}</span>
+              ${recipeCovBadge(r.food)}
             </div>
           `).join('')}
           ${grp.recipes.length > 100 ? `<div class="recipe-item-more">... і ще ${grp.recipes.length - 100} рецептів</div>` : ''}

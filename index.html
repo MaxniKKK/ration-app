@@ -211,11 +211,15 @@
         <div class="dir-list" id="dirList"></div>
       </div>
 
-      <!-- RECIPES (grouped by category) -->
+      <!-- RECIPES (grouped by meal type) -->
       <div id="fd-recipes" style="display:none">
         <div class="dir-bar">
           <button class="dir-add-btn" style="background:rgba(255,107,53,.08);color:var(--accent2);border:1.5px solid rgba(255,107,53,.25);flex:1" onclick="promptBulkImportKlopotenko()" title="Імпортувати базу рецептів klopotenko.com">📥 Імпорт бази klopotenko</button>
           <button class="dir-add-btn" style="background:rgba(255,107,53,.08);color:var(--accent2);border:1.5px solid rgba(255,107,53,.25)" onclick="promptKlopotenkoImport()" title="Імпортувати один рецепт за URL">🍳 URL</button>
+        </div>
+        <div class="recipe-cov-bar">
+          <button onclick="runRecipeCoverageAnalysis()" title="Перевірити які рецепти ≥70% покриті продуктами в довіднику">🔬 Перевірити покриття</button>
+          <button class="filter-toggle" id="recCovFilter" onclick="toggleRecipeWhitelistFilter()" title="Показати тільки whitelisted рецепти">✓ Лише whitelist</button>
         </div>
         <div class="recipes-list" id="recipesList"></div>
       </div>
