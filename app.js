@@ -488,6 +488,8 @@ function initFirebase(cfg) {
       // Refresh directory if it's open
       const searchScreen = document.getElementById('screen-search');
       if (searchScreen?.classList.contains('active')) renderFoodsDir();
+      // Re-render menu so item 📚/↗ links pick up freshly loaded FOODS data
+      if (document.getElementById('mealsList')) renderMeals();
     });
     // Show app
     document.getElementById("loader").classList.add("hide");
