@@ -107,31 +107,76 @@ const FOOD_CATEGORIES = {
 // Кожен інгредієнт: n=назва (узгоджена з FOOD_CATEGORIES для пошуку Сільпо),
 // k=приблизна калорійність на 100г (використовується тільки для розрахунку
 // порцій до моменту коли autoFillWeek підтягне точні дані з Сільпо).
+// Each ingredient has full per-100g nutrition (built-in "AI knowledge").
+// k=kcal, p=protein, f=fat, c=carbs. These values seed FOODS for any
+// ingredient the generator picks; later autoFillWeek may overwrite them
+// with exact data fetched from Silpo.
 const INGREDIENT_POOL = {
   protein: [
-    { n: 'Куряче філе',          k: 110 },
-    { n: 'Яйця курячі',          k: 155 },
-    { n: 'Тунець консервований', k: 120 },
+    { n: 'Куряче філе',          k: 110, p: 23,  f: 1.2, c: 0   },
+    { n: 'Яйця курячі',          k: 155, p: 13,  f: 11,  c: 1.1 },
+    { n: 'Тунець консервований', k: 116, p: 26,  f: 1,   c: 0   },
   ],
   dairy: [
-    { n: 'Йогурт грецький', k: 60 },
-    { n: 'Кефір 1%',        k: 40 },
+    { n: 'Йогурт грецький', k: 60, p: 10, f: 0.4, c: 4 },
+    { n: 'Кефір 1%',        k: 40, p: 3,  f: 1,   c: 4 },
   ],
   carb: [
-    { n: 'Гречка',   k: 340 },
-    { n: 'Рис',      k: 350 },
-    { n: 'Картопля', k: 80  },
+    { n: 'Гречка',   k: 343, p: 13, f: 3.4, c: 62 },
+    { n: 'Рис',      k: 350, p: 7,  f: 1,   c: 78 },
+    { n: 'Картопля', k: 77,  p: 2,  f: 0.1, c: 17 },
   ],
   fruit: [
-    { n: 'Банан',    k: 90 },
-    { n: 'Яблука',   k: 50 },
-    { n: 'Апельсин', k: 45 },
+    { n: 'Банан',    k: 89, p: 1.1, f: 0.3, c: 23 },
+    { n: 'Яблука',   k: 52, p: 0.3, f: 0.2, c: 14 },
+    { n: 'Апельсин', k: 47, p: 0.9, f: 0.1, c: 12 },
   ],
   veggie: [
-    { n: 'Огірок',  k: 16 },
-    { n: 'Помідор', k: 18 },
+    { n: 'Огірок',  k: 16, p: 0.7, f: 0.1, c: 3.6 },
+    { n: 'Помідор', k: 18, p: 0.9, f: 0.2, c: 3.9 },
   ],
 };
+
+// Lookup an ingredient by name across all categories
+function findInPool(name) {
+  for (const cat of Object.keys(INGREDIENT_POOL)) {
+    const found = INGREDIENT_POOL[cat].find(i => i.n === name);
+    if (found) return found;
+  }
+  return null;
+}
+
+// Ensure FOODS has an entry for `name`. If missing, seed from INGREDIENT_POOL
+// with built-in nutrition. Returns the resulting FOODS entry, or null if
+// the name isn't in the pool either.
+function ensureFoodInDirectory(name) {
+  const key = foodKey(name);
+  if (FOODS[key]) return FOODS[key];
+  const known = findInPool(name);
+  if (!known) return null;
+  FOODS[key] = {
+    name,
+    kcal:    known.k,
+    protein: known.p ?? 0,
+    fat:     known.f ?? 0,
+    carbs:   known.c ?? 0,
+    source: 'auto',
+  };
+  if (db) set(ref(db, 'racion/foods/' + key), FOODS[key]).catch(() => {});
+  return FOODS[key];
+}
+
+// Get best available nutrition for an ingredient name. Prefers FOODS
+// (which may have Silpo-accurate data after enrichment); falls back to POOL.
+function getIngredientNutr(name) {
+  const food = FOODS[foodKey(name)];
+  if (food && food.kcal > 0) {
+    return { kcal: food.kcal, protein: food.protein || 0, fat: food.fat || 0, carbs: food.carbs || 0 };
+  }
+  const pool = findInPool(name);
+  if (pool) return { kcal: pool.k, protein: pool.p || 0, fat: pool.f || 0, carbs: pool.c || 0 };
+  return null;
+}
 
 // Частка денних калорій для кожного типу прийому. Якщо в людини більше/менше
 // прийомів — суми нормалізуються щоб давати 100% денних ккал.
@@ -213,9 +258,33 @@ function generateMenuForPerson(pid) {
       recipe.forEach((cat, ci) => {
         const ing = pickIngredient(cat, day, idx * 5 + ci, forbidden);
         if (!ing) return;
+        // Make sure FOODS has this ingredient — seeds from POOL with full
+        // built-in nutrition, so the directory is always 100% populated.
+        ensureFoodInDirectory(ing.n);
+        // Use FOODS data if present (more accurate after Silpo enrichment),
+        // otherwise fall back to POOL.
+        const nutr = getIngredientNutr(ing.n) || { kcal: ing.k, protein: 0, fat: 0, carbs: 0 };
         // Convert kcal share → grams, snap to nearest 10g, floor at 20g
-        const grams = Math.max(20, Math.round((perCategoryKcal * 100 / ing.k) / 10) * 10);
-        items.push({ n: ing.n, g: `${grams}г` });
+        const grams = Math.max(20, Math.round((perCategoryKcal * 100 / nutr.kcal) / 10) * 10);
+        // Build item with full per-100g nutrition embedded — no item ever
+        // ends up without КБЖУ, even if Silpo lookup later fails.
+        const item = {
+          n: ing.n,
+          g: `${grams}г`,
+          kcal_per_100:    nutr.kcal,
+          protein_per_100: nutr.protein,
+          fat_per_100:     nutr.fat,
+          carbs_per_100:   nutr.carbs,
+        };
+        // If this ingredient is already linked to a Silpo product in FOODS,
+        // attach the slug/price so the menu UI shows ↗ Сільпо right away.
+        const food = FOODS[foodKey(ing.n)];
+        if (food?.silpoSlug) {
+          item.silpoSlug      = food.silpoSlug;
+          item.silpoPrice     = food.silpoPrice;
+          item.silpoPriceRatio= food.silpoPriceRatio;
+        }
+        items.push(item);
       });
 
       newDay[slot.key] = { kcal: mealKcal, items };
@@ -1416,63 +1485,41 @@ function applyPlanTemplate() {
   }
 }
 
-async function autoFillWeek(applyTemplate = false) {
-  const overlay = document.getElementById('progOverlay');
-  const bar     = document.getElementById('progBar');
-  const title   = document.getElementById('progTitle');
-  const sub     = document.getElementById('progSub');
-  overlay.classList.add('on');
-  bar.style.width = '0%';
-
-  if (applyTemplate) {
-    title.textContent = 'Складаємо план...';
-    sub.textContent = 'Застосовуємо тижневий раціон';
-    applyPlanTemplate();
-    renderMeals();
-    renderTotals();
-  }
-
-  // Collect all items that need lookup (no kcal_per_100 yet).
-  // Skip items that match the person's forbidden list — they shouldn't get
-  // КБЖУ filled in (and ideally shouldn't be in the menu, but might be from
-  // manual edits or older data).
-  const tasks = [];
+// Walk every meal item in the week and ensure FOODS has an entry for it.
+// Items in the generated plan are POOL ingredients (so ensureFoodInDirectory
+// finds them); manually-added items may not be in POOL — those stay un-seeded
+// and remain visible to the user with their existing КБЖУ if any.
+function seedFoodsFromMenu() {
   for (const p of getPeopleIds()) {
-    const fb = getPersonForbidden(p);
-    const isForbidden = name => fb.some(f =>
-      String(name||'').toLowerCase().includes(String(f).toLowerCase())
-    );
     for (let d = 0; d <= 6; d++) {
       const dayData = MENU[p]?.[d];
       if (!dayData) continue;
       for (const m of getDayMeals(p, d)) {
         const meal = dayData[m.key];
         if (!meal?.items) continue;
-        meal.items.forEach((it, i) => {
-          if (!it.n || it.kcal_per_100 != null) return;
-          if (isForbidden(it.n)) return;
-          tasks.push({ p, d, mk: m.key, i, name: it.n });
-        });
+        for (const it of meal.items) {
+          if (it.n) ensureFoodInDirectory(it.n);
+        }
       }
     }
   }
+}
 
-  // Deduplicate by name
-  const uniqueNames = [...new Set(tasks.map(t => t.name))];
-  const resolved = {};
-  let done = 0;
-
-  for (const name of uniqueNames) {
-    title.textContent = 'Шукаємо в Сільпо...';
-    sub.textContent = name;
-    bar.style.width = `${Math.round(done / uniqueNames.length * 100)}%`;
-
-    // Check FOODS cache first
-    const cKey = foodKey(name);
-    if (FOODS[cKey]) { resolved[name] = FOODS[cKey]; done++; continue; }
-
+// For every FOODS entry that isn't already linked to Silpo and isn't a manual
+// override, search Silpo and replace the entry's КБЖУ + attach slug/icon/price.
+// Auto-seeded entries (source='auto') get upgraded to source='silpo' on success.
+async function enrichFoodsFromSilpo(progress) {
+  const candidates = Object.keys(FOODS).filter(k => {
+    const v = FOODS[k];
+    return v && v.source !== 'silpo' && v.source !== 'manual';
+  });
+  let upgraded = 0;
+  for (let i = 0; i < candidates.length; i++) {
+    const key = candidates[i];
+    const food = FOODS[key];
+    const name = food.name || key;
+    progress?.(name, i, candidates.length);
     try {
-      // Search Silpo with wider limit, then pick best by category-aware score
       let items = [];
       for (const query of [name, name.split(' ')[0]]) {
         const sr = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products?limit=20&search=${encodeURIComponent(query)}`, { headers: { accept: 'application/json' } });
@@ -1481,39 +1528,105 @@ async function autoFillWeek(applyTemplate = false) {
         if (items.length) break;
       }
       const best = pickBestSilpo(items, name);
-      if (!best) { done++; continue; }
-
-      // Fetch detail for nutrition
+      if (!best) continue;
       const dr = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products/${best.slug}`, { headers: { accept: 'application/json' } });
       const detail = await dr.json();
       const nutr = parseSilpoNutr(detail.attributeGroups);
-
-      if (nutr) {
-        const entry = { ...nutr, silpoId: best.id, silpoSlug: best.slug, silpoTitle: best.title, silpoIcon: best.icon || null, silpoPrice: best.displayPrice, silpoPriceRatio: best.displayRatio };
-        resolved[name] = entry;
-        FOODS[cKey] = { name, silpoTitle: best.title, silpoSlug: best.slug, silpoIcon: best.icon || null, silpoPrice: best.displayPrice, silpoPriceRatio: best.displayRatio, source: 'silpo', ...nutr };
-        if (db) set(ref(db, 'racion/foods/' + cKey), FOODS[cKey]).catch(() => {});
-      }
+      // Only overwrite if Silpo gave us a full set — otherwise the POOL/auto
+      // value is more reliable than partial data
+      const hasFullNutr = nutr && nutr.kcal != null && nutr.protein != null && nutr.fat != null && nutr.carbs != null;
+      if (!hasFullNutr) continue;
+      FOODS[key] = {
+        name,
+        silpoTitle:      best.title,
+        silpoSlug:       best.slug,
+        silpoIcon:       best.icon || null,
+        silpoPrice:      best.displayPrice ?? null,
+        silpoPriceRatio: best.displayRatio ?? null,
+        source: 'silpo',
+        ...nutr,
+      };
+      if (db) set(ref(db, 'racion/foods/' + key), FOODS[key]).catch(() => {});
+      upgraded++;
     } catch(e) {}
-    done++;
+  }
+  return { upgraded, total: candidates.length };
+}
+
+// Push FOODS data into every menu item that has a matching name. Used after
+// enrichment to propagate Silpo-accurate КБЖУ back to the plan.
+function applyFoodsToMenuItems() {
+  for (const p of getPeopleIds()) {
+    for (let d = 0; d <= 6; d++) {
+      const dayData = MENU[p]?.[d];
+      if (!dayData) continue;
+      for (const m of getDayMeals(p, d)) {
+        const meal = dayData[m.key];
+        if (!meal?.items) continue;
+        for (const it of meal.items) {
+          if (!it.n) continue;
+          const food = FOODS[foodKey(it.n)];
+          if (!food || !food.kcal) continue;
+          it.kcal_per_100    = food.kcal;
+          it.protein_per_100 = food.protein || 0;
+          it.fat_per_100     = food.fat     || 0;
+          it.carbs_per_100   = food.carbs   || 0;
+          if (food.silpoSlug) {
+            it.silpoSlug       = food.silpoSlug;
+            it.silpoPrice      = food.silpoPrice;
+            it.silpoPriceRatio = food.silpoPriceRatio;
+          }
+        }
+      }
+    }
+  }
+}
+
+async function autoFillWeek(applyTemplate = false) {
+  const overlay = document.getElementById('progOverlay');
+  const bar     = document.getElementById('progBar');
+  const title   = document.getElementById('progTitle');
+  const sub     = document.getElementById('progSub');
+  overlay.classList.add('on');
+  bar.style.width = '0%';
+
+  // Phase 1 — generate plan from profile (only on explicit "OK" choice).
+  // Generator embeds POOL КБЖУ in every item and seeds FOODS so the directory
+  // is 100% populated even before any Silpo lookup.
+  if (applyTemplate) {
+    title.textContent = 'Складаємо план...';
+    sub.textContent = 'Генеруємо тиждень з профілів';
+    applyPlanTemplate();
+    renderMeals();
+    renderTotals();
   }
 
-  // Apply to all menu items
-  for (const task of tasks) {
-    const nutr = resolved[task.name];
-    if (!nutr) continue;
-    const item = MENU[task.p][task.d][task.mk].items[task.i];
-    item.kcal_per_100    = nutr.kcal;
-    item.protein_per_100 = nutr.protein;
-    item.fat_per_100     = nutr.fat;
-    item.carbs_per_100   = nutr.carbs;
-    if (nutr.silpoId)    { item.silpoId = nutr.silpoId; item.silpoSlug = nutr.silpoSlug; item.silpoPrice = nutr.silpoPrice; item.silpoPriceRatio = nutr.silpoPriceRatio; }
+  // Phase 2 — make sure every menu item has a FOODS entry (covers manually
+  // edited items added between regenerations)
+  seedFoodsFromMenu();
+
+  // Phase 3 — enrich FOODS from Silpo (one network call per unique food)
+  title.textContent = 'Збагачуємо з Сільпо...';
+  const { upgraded, total } = await enrichFoodsFromSilpo((name, i, n) => {
+    sub.textContent = name;
+    bar.style.width = `${Math.round(i / Math.max(1, n) * 80)}%`;
+  });
+
+  // Phase 4 — push the (now possibly Silpo-accurate) FOODS data into menu items.
+  // If we just generated, run the generator a second time so portion sizes
+  // get recalculated using the better КБЖУ values that just came back.
+  applyFoodsToMenuItems();
+  if (applyTemplate) {
+    title.textContent = 'Перераховуємо порції...';
+    sub.textContent = 'З урахуванням КБЖУ Сільпо';
+    bar.style.width = '90%';
+    applyPlanTemplate();
   }
 
   // Save
   bar.style.width = '100%';
   title.textContent = '✓ Готово!';
-  sub.textContent = `Завантажено дані для ${Object.keys(resolved).length} з ${uniqueNames.length} продуктів`;
+  sub.textContent = `Збагачено ${upgraded} з ${total} продуктів з Сільпо`;
   if (db) set(ref(db, 'racion/menu'), MENU).then(() => setSyncStatus('ok', 'Збережено ✓')).catch(() => {});
   renderMeals();
   renderTotals();
