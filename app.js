@@ -85,7 +85,7 @@ const DEFAULT_PEOPLE = {
 };
 
 // ── КАТЕГОРІЇ СІЛЬПО для авто-мапінгу ───────────────────────────────────
-// Ключ — назва з PLAN_TEMPLATE, значення — масив підрядків які мають
+// Ключ — назва з INGREDIENT_POOL, значення — масив підрядків які мають
 // зустрітися в sectionSlug продукту Сільпо. Без матчу — продукт відкидається.
 const FOOD_CATEGORIES = {
   'Банан':                ['banany','frukty'],
@@ -103,99 +103,128 @@ const FOOD_CATEGORIES = {
   'Тунець консервований': ['tunets','rybni-konserv','konserv-rybn'],
 };
 
-// ── ТИЖНЕВИЙ ПЛАН (Ти ~2200 ккал / Вона ~1800 ккал) ─────────────────────
-// Тільки дозволені продукти. Назви перевірені в Сільпо API.
-// Заборонено: лосось, броколі, яловичина, горіхи, мед, свинина, форель
-const PLAN_TEMPLATE = {
-  you: {
-    1:{ totals:{kcal:2200,protein:175,fat:70,carbs:218},
-      breakfast:{kcal:0,items:[{n:'Яйця курячі',g:'110г'},{n:'Йогурт грецький',g:'150г'},{n:'Банан',g:'120г'}]},
-      snack1:   {kcal:0,items:[{n:'Кефір 1%',g:'250г'},{n:'Яблука',g:'150г'}]},
-      lunch:    {kcal:0,items:[{n:'Куряче філе',g:'220г'},{n:'Гречка',g:'110г'},{n:'Огірок',g:'150г'},{n:'Помідор',g:'100г'}]},
-      snack2:   {kcal:0,items:[{n:'Кефір 1%',g:'200г'},{n:'Банан',g:'100г'}]},
-      dinner:   {kcal:0,items:[{n:'Куряче філе',g:'200г'},{n:'Рис',g:'100г'},{n:'Помідор',g:'150г'}]}},
-    2:{ totals:{kcal:2200,protein:175,fat:70,carbs:218},
-      breakfast:{kcal:0,items:[{n:'Яйця курячі',g:'165г'},{n:'Помідор',g:'150г'},{n:'Йогурт грецький',g:'150г'}]},
-      snack1:   {kcal:0,items:[{n:'Кефір 1%',g:'250г'},{n:'Яблука',g:'150г'}]},
-      lunch:    {kcal:0,items:[{n:'Тунець консервований',g:'185г'},{n:'Картопля',g:'250г'},{n:'Огірок',g:'150г'}]},
-      snack2:   {kcal:0,items:[{n:'Йогурт грецький',g:'150г'},{n:'Банан',g:'100г'}]},
-      dinner:   {kcal:0,items:[{n:'Куряче філе',g:'200г'},{n:'Гречка',g:'110г'},{n:'Огірок',g:'150г'}]}},
-    3:{ totals:{kcal:2200,protein:175,fat:70,carbs:218},
-      breakfast:{kcal:0,items:[{n:'Яйця курячі',g:'110г'},{n:'Йогурт грецький',g:'200г'},{n:'Банан',g:'120г'}]},
-      snack1:   {kcal:0,items:[{n:'Кефір 1%',g:'250г'},{n:'Апельсин',g:'150г'}]},
-      lunch:    {kcal:0,items:[{n:'Куряче філе',g:'220г'},{n:'Рис',g:'110г'},{n:'Помідор',g:'150г'},{n:'Огірок',g:'100г'}]},
-      snack2:   {kcal:0,items:[{n:'Кефір 1%',g:'200г'},{n:'Яблука',g:'150г'}]},
-      dinner:   {kcal:0,items:[{n:'Тунець консервований',g:'185г'},{n:'Картопля',g:'250г'},{n:'Помідор',g:'100г'}]}},
-    4:{ totals:{kcal:2200,protein:175,fat:70,carbs:218},
-      breakfast:{kcal:0,items:[{n:'Яйця курячі',g:'165г'},{n:'Помідор',g:'150г'},{n:'Йогурт грецький',g:'150г'}]},
-      snack1:   {kcal:0,items:[{n:'Кефір 1%',g:'250г'},{n:'Банан',g:'120г'}]},
-      lunch:    {kcal:0,items:[{n:'Куряче філе',g:'220г'},{n:'Гречка',g:'110г'},{n:'Огірок',g:'150г'},{n:'Помідор',g:'100г'}]},
-      snack2:   {kcal:0,items:[{n:'Йогурт грецький',g:'150г'},{n:'Яблука',g:'150г'}]},
-      dinner:   {kcal:0,items:[{n:'Куряче філе',g:'200г'},{n:'Рис',g:'100г'},{n:'Огірок',g:'150г'}]}},
-    5:{ totals:{kcal:2200,protein:175,fat:70,carbs:218},
-      breakfast:{kcal:0,items:[{n:'Яйця курячі',g:'110г'},{n:'Йогурт грецький',g:'150г'},{n:'Банан',g:'120г'}]},
-      snack1:   {kcal:0,items:[{n:'Кефір 1%',g:'250г'},{n:'Апельсин',g:'150г'}]},
-      lunch:    {kcal:0,items:[{n:'Тунець консервований',g:'185г'},{n:'Рис',g:'110г'},{n:'Огірок',g:'150г'},{n:'Помідор',g:'100г'}]},
-      snack2:   {kcal:0,items:[{n:'Кефір 1%',g:'200г'},{n:'Яблука',g:'150г'}]},
-      dinner:   {kcal:0,items:[{n:'Куряче філе',g:'200г'},{n:'Гречка',g:'110г'},{n:'Помідор',g:'150г'}]}},
-    6:{ totals:{kcal:2200,protein:175,fat:70,carbs:218},
-      breakfast:{kcal:0,items:[{n:'Яйця курячі',g:'165г'},{n:'Помідор',g:'150г'},{n:'Йогурт грецький',g:'150г'}]},
-      snack1:   {kcal:0,items:[{n:'Кефір 1%',g:'250г'},{n:'Яблука',g:'150г'}]},
-      lunch:    {kcal:0,items:[{n:'Куряче філе',g:'220г'},{n:'Гречка',g:'110г'},{n:'Огірок',g:'150г'},{n:'Помідор',g:'100г'}]},
-      snack2:   {kcal:0,items:[{n:'Йогурт грецький',g:'150г'},{n:'Банан',g:'100г'}]},
-      dinner:   {kcal:0,items:[{n:'Куряче філе',g:'200г'},{n:'Картопля',g:'250г'},{n:'Огірок',g:'150г'}]}},
-    0:{ totals:{kcal:2200,protein:175,fat:70,carbs:218},
-      breakfast:{kcal:0,items:[{n:'Яйця курячі',g:'110г'},{n:'Йогурт грецький',g:'200г'},{n:'Банан',g:'120г'}]},
-      snack1:   {kcal:0,items:[{n:'Кефір 1%',g:'250г'},{n:'Апельсин',g:'150г'}]},
-      lunch:    {kcal:0,items:[{n:'Куряче філе',g:'220г'},{n:'Рис',g:'110г'},{n:'Огірок',g:'150г'},{n:'Помідор',g:'100г'}]},
-      snack2:   {kcal:0,items:[{n:'Кефір 1%',g:'200г'},{n:'Яблука',g:'150г'}]},
-      dinner:   {kcal:0,items:[{n:'Тунець консервований',g:'185г'},{n:'Картопля',g:'250г'},{n:'Помідор',g:'100г'}]}},
-  },
-  her: {
-    1:{ totals:{kcal:1800,protein:100,fat:65,carbs:195},
-      breakfast:{kcal:0,items:[{n:'Яйця курячі',g:'110г'},{n:'Йогурт грецький',g:'130г'},{n:'Банан',g:'100г'}]},
-      snack1:   {kcal:0,items:[{n:'Кефір 1%',g:'200г'},{n:'Яблука',g:'130г'}]},
-      lunch:    {kcal:0,items:[{n:'Куряче філе',g:'150г'},{n:'Гречка',g:'90г'},{n:'Огірок',g:'150г'},{n:'Помідор',g:'100г'}]},
-      snack2:   {kcal:0,items:[{n:'Кефір 1%',g:'200г'},{n:'Банан',g:'80г'}]},
-      dinner:   {kcal:0,items:[{n:'Куряче філе',g:'150г'},{n:'Рис',g:'90г'},{n:'Помідор',g:'100г'}]}},
-    2:{ totals:{kcal:1800,protein:100,fat:65,carbs:195},
-      breakfast:{kcal:0,items:[{n:'Яйця курячі',g:'110г'},{n:'Помідор',g:'150г'},{n:'Йогурт грецький',g:'130г'}]},
-      snack1:   {kcal:0,items:[{n:'Кефір 1%',g:'200г'},{n:'Яблука',g:'130г'}]},
-      lunch:    {kcal:0,items:[{n:'Тунець консервований',g:'150г'},{n:'Картопля',g:'200г'},{n:'Огірок',g:'150г'}]},
-      snack2:   {kcal:0,items:[{n:'Йогурт грецький',g:'130г'},{n:'Банан',g:'80г'}]},
-      dinner:   {kcal:0,items:[{n:'Куряче філе',g:'150г'},{n:'Гречка',g:'90г'},{n:'Огірок',g:'100г'}]}},
-    3:{ totals:{kcal:1800,protein:100,fat:65,carbs:195},
-      breakfast:{kcal:0,items:[{n:'Яйця курячі',g:'110г'},{n:'Йогурт грецький',g:'150г'},{n:'Банан',g:'100г'}]},
-      snack1:   {kcal:0,items:[{n:'Кефір 1%',g:'200г'},{n:'Апельсин',g:'130г'}]},
-      lunch:    {kcal:0,items:[{n:'Куряче філе',g:'150г'},{n:'Рис',g:'90г'},{n:'Помідор',g:'100г'},{n:'Огірок',g:'100г'}]},
-      snack2:   {kcal:0,items:[{n:'Кефір 1%',g:'200г'},{n:'Яблука',g:'130г'}]},
-      dinner:   {kcal:0,items:[{n:'Тунець консервований',g:'150г'},{n:'Картопля',g:'200г'},{n:'Помідор',g:'80г'}]}},
-    4:{ totals:{kcal:1800,protein:100,fat:65,carbs:195},
-      breakfast:{kcal:0,items:[{n:'Яйця курячі',g:'110г'},{n:'Помідор',g:'130г'},{n:'Йогурт грецький',g:'130г'}]},
-      snack1:   {kcal:0,items:[{n:'Кефір 1%',g:'200г'},{n:'Банан',g:'80г'}]},
-      lunch:    {kcal:0,items:[{n:'Куряче філе',g:'150г'},{n:'Гречка',g:'90г'},{n:'Огірок',g:'150г'},{n:'Помідор',g:'80г'}]},
-      snack2:   {kcal:0,items:[{n:'Йогурт грецький',g:'130г'},{n:'Яблука',g:'130г'}]},
-      dinner:   {kcal:0,items:[{n:'Куряче філе',g:'150г'},{n:'Рис',g:'90г'},{n:'Огірок',g:'100г'}]}},
-    5:{ totals:{kcal:1800,protein:100,fat:65,carbs:195},
-      breakfast:{kcal:0,items:[{n:'Яйця курячі',g:'110г'},{n:'Йогурт грецький',g:'130г'},{n:'Банан',g:'100г'}]},
-      snack1:   {kcal:0,items:[{n:'Кефір 1%',g:'200г'},{n:'Апельсин',g:'130г'}]},
-      lunch:    {kcal:0,items:[{n:'Тунець консервований',g:'150г'},{n:'Рис',g:'90г'},{n:'Огірок',g:'150г'},{n:'Помідор',g:'80г'}]},
-      snack2:   {kcal:0,items:[{n:'Кефір 1%',g:'200г'},{n:'Яблука',g:'130г'}]},
-      dinner:   {kcal:0,items:[{n:'Куряче філе',g:'150г'},{n:'Гречка',g:'90г'},{n:'Помідор',g:'100г'}]}},
-    6:{ totals:{kcal:1800,protein:100,fat:65,carbs:195},
-      breakfast:{kcal:0,items:[{n:'Яйця курячі',g:'110г'},{n:'Помідор',g:'130г'},{n:'Йогурт грецький',g:'130г'}]},
-      snack1:   {kcal:0,items:[{n:'Кефір 1%',g:'200г'},{n:'Яблука',g:'130г'}]},
-      lunch:    {kcal:0,items:[{n:'Куряче філе',g:'150г'},{n:'Гречка',g:'90г'},{n:'Огірок',g:'150г'},{n:'Помідор',g:'80г'}]},
-      snack2:   {kcal:0,items:[{n:'Йогурт грецький',g:'130г'},{n:'Банан',g:'80г'}]},
-      dinner:   {kcal:0,items:[{n:'Куряче філе',g:'150г'},{n:'Картопля',g:'200г'},{n:'Огірок',g:'100г'}]}},
-    0:{ totals:{kcal:1800,protein:100,fat:65,carbs:195},
-      breakfast:{kcal:0,items:[{n:'Яйця курячі',g:'110г'},{n:'Йогурт грецький',g:'150г'},{n:'Банан',g:'100г'}]},
-      snack1:   {kcal:0,items:[{n:'Кефір 1%',g:'200г'},{n:'Апельсин',g:'130г'}]},
-      lunch:    {kcal:0,items:[{n:'Куряче філе',g:'150г'},{n:'Рис',g:'90г'},{n:'Огірок',g:'150г'},{n:'Помідор',g:'80г'}]},
-      snack2:   {kcal:0,items:[{n:'Кефір 1%',g:'200г'},{n:'Яблука',g:'130г'}]},
-      dinner:   {kcal:0,items:[{n:'Тунець консервований',g:'150г'},{n:'Картопля',g:'200г'},{n:'Помідор',g:'80г'}]}},
-  },
+// ── ПУЛ ІНГРЕДІЄНТІВ для динамічної генерації плану ─────────────────────
+// Кожен інгредієнт: n=назва (узгоджена з FOOD_CATEGORIES для пошуку Сільпо),
+// k=приблизна калорійність на 100г (використовується тільки для розрахунку
+// порцій до моменту коли autoFillWeek підтягне точні дані з Сільпо).
+const INGREDIENT_POOL = {
+  protein: [
+    { n: 'Куряче філе',          k: 110 },
+    { n: 'Яйця курячі',          k: 155 },
+    { n: 'Тунець консервований', k: 120 },
+  ],
+  dairy: [
+    { n: 'Йогурт грецький', k: 60 },
+    { n: 'Кефір 1%',        k: 40 },
+  ],
+  carb: [
+    { n: 'Гречка',   k: 340 },
+    { n: 'Рис',      k: 350 },
+    { n: 'Картопля', k: 80  },
+  ],
+  fruit: [
+    { n: 'Банан',    k: 90 },
+    { n: 'Яблука',   k: 50 },
+    { n: 'Апельсин', k: 45 },
+  ],
+  veggie: [
+    { n: 'Огірок',  k: 16 },
+    { n: 'Помідор', k: 18 },
+  ],
 };
+
+// Частка денних калорій для кожного типу прийому. Якщо в людини більше/менше
+// прийомів — суми нормалізуються щоб давати 100% денних ккал.
+const MEAL_KCAL_SHARE = {
+  breakfast: 0.25,
+  lunch:     0.32,
+  dinner:    0.25,
+  snack:     0.09,
+};
+
+// Які категорії інгредієнтів кладемо в кожен тип прийому
+const MEAL_RECIPE = {
+  breakfast: ['protein', 'dairy', 'fruit'],
+  lunch:     ['protein', 'carb', 'veggie', 'veggie'],
+  dinner:    ['protein', 'carb', 'veggie'],
+  snack:     ['dairy', 'fruit'],
+};
+
+// Класифікує слот по його назві (UA/EN). Все що не впізнане → snack.
+function classifyMealSlot(slotName) {
+  const n = String(slotName || '').toLowerCase();
+  if (/сніданок|breakfast/.test(n)) return 'breakfast';
+  if (/обід|lunch/.test(n))         return 'lunch';
+  if (/вечер|dinner/.test(n))       return 'dinner';
+  return 'snack';
+}
+
+// Беремо інгредієнт з категорії з ротацією по дню+слоту, оминаючи forbidden.
+function pickIngredient(category, day, offset, forbidden) {
+  const list = INGREDIENT_POOL[category] || [];
+  if (!list.length) return null;
+  const start = ((day * 3 + offset) % list.length + list.length) % list.length;
+  for (let i = 0; i < list.length; i++) {
+    const item = list[(start + i) % list.length];
+    const blocked = forbidden.some(f =>
+      item.n.toLowerCase().includes(String(f).toLowerCase())
+    );
+    if (!blocked) return item;
+  }
+  return null; // everything in this category is forbidden for this person
+}
+
+// Генерує тиждень для однієї людини на основі її профіля.
+// Враховує: targets, forbidden, meal slots (з override дня якщо є).
+// Не перетирає override-меню дня — використовує його для розкладу прийомів.
+function generateMenuForPerson(pid) {
+  const targets   = getPersonTargets(pid);
+  const forbidden = getPersonForbidden(pid);
+  const dailyKcal = targets.kcal || 2000;
+  const personMeals = getPersonMeals(pid);
+
+  if (!MENU[pid]) MENU[pid] = {};
+
+  for (const day of [0, 1, 2, 3, 4, 5, 6]) {
+    // Use day-specific meals if overridden, otherwise person default
+    const slots = MENU[pid][day]?.meals || personMeals;
+    if (!slots || !slots.length) {
+      MENU[pid][day] = { totals: { ...targets } };
+      continue;
+    }
+
+    // Compute kcal share per slot, normalized so they sum to 1.0
+    const types = slots.map(s => classifyMealSlot(s.name));
+    const rawShares = types.map(t => MEAL_KCAL_SHARE[t] || 0.1);
+    const totalShare = rawShares.reduce((s, x) => s + x, 0) || 1;
+    const slotKcals = rawShares.map(s => Math.round(dailyKcal * s / totalShare));
+
+    // Build new day, preserving meals override if present
+    const newDay = { totals: { ...targets } };
+    if (MENU[pid][day]?.meals) newDay.meals = MENU[pid][day].meals;
+
+    slots.forEach((slot, idx) => {
+      const type = types[idx];
+      const recipe = MEAL_RECIPE[type] || MEAL_RECIPE.snack;
+      const mealKcal = slotKcals[idx];
+      const perCategoryKcal = mealKcal / Math.max(1, recipe.length);
+
+      const items = [];
+      recipe.forEach((cat, ci) => {
+        const ing = pickIngredient(cat, day, idx * 5 + ci, forbidden);
+        if (!ing) return;
+        // Convert kcal share → grams, snap to nearest 10g, floor at 20g
+        const grams = Math.max(20, Math.round((perCategoryKcal * 100 / ing.k) / 10) * 10);
+        items.push({ n: ing.n, g: `${grams}г` });
+      });
+
+      newDay[slot.key] = { kcal: mealKcal, items };
+    });
+
+    MENU[pid][day] = newDay;
+  }
+}
+
 
 
 // ═══════════════════════════════
@@ -1379,22 +1408,11 @@ function pickBestSilpo(items, name) {
 }
 
 function applyPlanTemplate() {
-  // For known people (you/her) — apply hardcoded PLAN_TEMPLATE.
-  // For new people — generate empty days from their meal config and targets.
+  // Generate the entire week for every person from their profile
+  // (targets, forbidden, meal slots). Day-level meals overrides are
+  // preserved by generateMenuForPerson.
   for (const pid of getPeopleIds()) {
-    if (!MENU[pid]) MENU[pid] = {};
-    const tgt = getPersonTargets(pid);
-    const meals = getPersonMeals(pid);
-    for (const d of [0,1,2,3,4,5,6]) {
-      if (PLAN_TEMPLATE[pid]?.[d]) {
-        MENU[pid][d] = JSON.parse(JSON.stringify(PLAN_TEMPLATE[pid][d]));
-      } else {
-        // Empty day with this person's meal slots and targets
-        const day = { totals: { ...tgt } };
-        for (const m of meals) day[m.key] = { kcal: 0, items: [] };
-        MENU[pid][d] = day;
-      }
-    }
+    generateMenuForPerson(pid);
   }
 }
 
@@ -1414,9 +1432,16 @@ async function autoFillWeek(applyTemplate = false) {
     renderTotals();
   }
 
-  // Collect all items that need lookup (no kcal_per_100 yet)
+  // Collect all items that need lookup (no kcal_per_100 yet).
+  // Skip items that match the person's forbidden list — they shouldn't get
+  // КБЖУ filled in (and ideally shouldn't be in the menu, but might be from
+  // manual edits or older data).
   const tasks = [];
   for (const p of getPeopleIds()) {
+    const fb = getPersonForbidden(p);
+    const isForbidden = name => fb.some(f =>
+      String(name||'').toLowerCase().includes(String(f).toLowerCase())
+    );
     for (let d = 0; d <= 6; d++) {
       const dayData = MENU[p]?.[d];
       if (!dayData) continue;
@@ -1424,7 +1449,9 @@ async function autoFillWeek(applyTemplate = false) {
         const meal = dayData[m.key];
         if (!meal?.items) continue;
         meal.items.forEach((it, i) => {
-          if (it.n && it.kcal_per_100 == null) tasks.push({ p, d, mk: m.key, i, name: it.n });
+          if (!it.n || it.kcal_per_100 != null) return;
+          if (isForbidden(it.n)) return;
+          tasks.push({ p, d, mk: m.key, i, name: it.n });
         });
       }
     }
