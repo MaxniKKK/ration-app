@@ -286,6 +286,35 @@
       .exs{margin-top:12px;display:flex;flex-wrap:wrap;gap:5px;justify-content:center;}
       .exch{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:5px 11px;font-size:10px;color:var(--text);cursor:pointer;}
       .sl{text-align:center;padding:28px;color:var(--muted);font-size:12px;}
+
+      /* ── FOOD DIRECTORY ── */
+      .fd-tabs{display:flex;border-bottom:1px solid var(--border);background:var(--card);}
+      .fd-tab{flex:1;padding:11px 4px;text-align:center;cursor:pointer;font-family:'Unbounded',sans-serif;font-size:9px;font-weight:700;color:var(--muted);border-bottom:2px solid transparent;transition:all .2s;}
+      .fd-tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+      .dir-bar{padding:10px 16px;display:flex;gap:8px;align-items:center;border-bottom:1px solid var(--border);}
+      .dir-filter{flex:1;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:9px 13px;color:var(--text);font-family:'Golos Text',sans-serif;font-size:13px;outline:none;}
+      .dir-filter:focus{border-color:var(--accent);}
+      .dir-add-btn{padding:9px 14px;background:var(--accent);border:none;border-radius:10px;font-family:'Unbounded',sans-serif;font-size:10px;font-weight:700;color:#000;cursor:pointer;white-space:nowrap;}
+      .dir-list{padding:0 16px 32px;max-width:500px;margin:0 auto;}
+      .dir-empty{text-align:center;padding:40px 20px;color:var(--muted);font-size:12px;line-height:1.7;}
+      .dir-row{display:flex;align-items:center;padding:10px 0;border-bottom:1px solid var(--border);gap:8px;}
+      .dir-row:last-child{border-bottom:none;}
+      .dir-name{flex:1;font-size:13px;font-weight:500;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+      .dir-nutr{display:flex;gap:4px;font-size:10px;flex-shrink:0;}
+      .dir-nutr span{background:var(--card2);padding:2px 5px;border-radius:5px;color:var(--muted);}
+      .dir-nutr .dn-k{color:var(--accent);}
+      .dir-actions{display:flex;gap:4px;flex-shrink:0;}
+      .dir-btn{background:none;border:1px solid var(--border);border-radius:7px;padding:4px 7px;font-size:11px;cursor:pointer;color:var(--muted);}
+      .dir-edit-row{padding:12px 0;border-bottom:1px solid var(--border);}
+      .dir-edit-name{width:100%;background:var(--card2);border:1px solid var(--accent);border-radius:9px;padding:8px 11px;color:var(--text);font-family:'Golos Text',sans-serif;font-size:13px;margin-bottom:8px;outline:none;box-sizing:border-box;}
+      .dir-edit-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:8px;}
+      .dir-edit-cell{display:flex;flex-direction:column;gap:2px;}
+      .dir-edit-inp{background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:7px 6px;color:var(--text);font-size:12px;outline:none;text-align:center;width:100%;box-sizing:border-box;}
+      .dir-edit-inp:focus{border-color:var(--accent);}
+      .dir-edit-lbl{font-size:8px;color:var(--muted);text-align:center;font-family:'Unbounded',sans-serif;letter-spacing:.3px;}
+      .dir-edit-btns{display:flex;gap:6px;}
+      .dir-save-btn{flex:1;padding:9px;background:var(--accent);border:none;border-radius:9px;font-family:'Unbounded',sans-serif;font-size:9px;font-weight:700;color:#000;cursor:pointer;}
+      .dir-cancel-btn{padding:9px 14px;background:none;border:1px solid var(--border);border-radius:9px;font-family:'Unbounded',sans-serif;font-size:9px;color:var(--muted);cursor:pointer;}
       .fc{background:var(--card);border-radius:12px;border:1px solid var(--border);padding:13px;margin-bottom:8px;cursor:pointer;transition:border-color .2s;active:border-color:var(--accent);}
       .fc-name{font-family:'Unbounded',sans-serif;font-size:11px;font-weight:700;margin-bottom:2px;}
       .fc-brand{font-size:10px;color:var(--muted);margin-bottom:9px;}
@@ -477,35 +506,45 @@
 
     <!-- SEARCH SCREEN -->
     <div class="screen" id="screen-search" style="display: none">
-      <div class="search-header">
-        <div class="sh-title">🔍 Продукти — КБЖУ</div>
-        <div class="sbox">
-          <input
-            class="sinp"
-            id="searchInp"
-            placeholder="Введи назву продукту..."
-            onkeydown="if (event.key === 'Enter') doSearch();"
-          />
-          <button class="sbtn" id="searchBtn" onclick="doSearch()">
-            Шукати
-          </button>
-        </div>
+      <!-- Tabs -->
+      <div class="fd-tabs">
+        <div class="fd-tab active" id="fd-tab-dir" onclick="showFdTab('dir')">📚 Довідник</div>
+        <div class="fd-tab" id="fd-tab-silpo" onclick="showFdTab('silpo')">🔍 Пошук Сільпо</div>
       </div>
-      <div class="scontent" id="searchContent">
-        <div class="shint">
-          <div class="shi">🛒</div>
-          <p>
-            Пошук продуктів Сільпо з КБЖУ на 100г — натисни на продукт щоб побачити деталі
-          </p>
-          <div class="exs">
-            <div class="exch" onclick="qs('куряча грудка')">🍗 Куряча грудка</div>
-            <div class="exch" onclick="qs('гречка')">🌾 Гречка</div>
-            <div class="exch" onclick="qs('яйця')">🥚 Яйця</div>
-            <div class="exch" onclick="qs('кефір')">🥛 Кефір</div>
-            <div class="exch" onclick="qs('тунець')">🐟 Тунець</div>
-            <div class="exch" onclick="qs('йогурт грецький')">🫙 Йогурт</div>
-            <div class="exch" onclick="qs('рис')">🍚 Рис</div>
-            <div class="exch" onclick="qs('лосось')">🍣 Лосось</div>
+
+      <!-- DIRECTORY -->
+      <div id="fd-dir">
+        <div class="dir-bar">
+          <input class="dir-filter" id="dirFilter" placeholder="Фільтр..." oninput="renderFoodsDir()">
+          <button class="dir-add-btn" onclick="startAddFood()">+ Додати</button>
+        </div>
+        <div class="dir-list" id="dirList"></div>
+      </div>
+
+      <!-- SILPO SEARCH -->
+      <div id="fd-silpo" style="display:none">
+        <div class="search-header">
+          <div class="sh-title">🔍 Пошук в Сільпо</div>
+          <div class="sbox">
+            <input class="sinp" id="searchInp" placeholder="Введи назву продукту..."
+              onkeydown="if(event.key==='Enter')doSearch();"/>
+            <button class="sbtn" id="searchBtn" onclick="doSearch()">Шукати</button>
+          </div>
+        </div>
+        <div class="scontent" id="searchContent">
+          <div class="shint">
+            <div class="shi">🛒</div>
+            <p>Пошук продуктів Сільпо з КБЖУ на 100г.<br>Знайдений продукт автоматично зберігається в Довідник.</p>
+            <div class="exs">
+              <div class="exch" onclick="qs('куряче філе')">🍗 Курка</div>
+              <div class="exch" onclick="qs('тунець консервований')">🐟 Тунець</div>
+              <div class="exch" onclick="qs('яйця курячі')">🥚 Яйця</div>
+              <div class="exch" onclick="qs('гречка')">🌾 Гречка</div>
+              <div class="exch" onclick="qs('рис')">🍚 Рис</div>
+              <div class="exch" onclick="qs('картопля')">🥔 Картопля</div>
+              <div class="exch" onclick="qs('кефір 1%')">🥛 Кефір</div>
+              <div class="exch" onclick="qs('йогурт грецький')">🫙 Йогурт</div>
+            </div>
           </div>
         </div>
       </div>
@@ -1511,6 +1550,7 @@
         document.getElementById("screen-" + s).classList.add("active");
         document.getElementById("nt-" + s).classList.add("active");
         if (s === "diary") renderCal();
+        if (s === "search") renderFoodsDir();
       };
 
       // ═══════════════════════════════
@@ -1922,15 +1962,144 @@
           item.protein_per_100 = nutr.protein;
           item.fat_per_100 = nutr.fat;
           item.carbs_per_100 = nutr.carbs;
-          // Cache to Firebase
+          // Cache to Firebase (always save with name)
           if (db) {
             const key = foodKey(p.title);
-            FOODS[key] = nutr;
-            set(ref(db, "racion/foods/" + key), nutr).catch(() => {});
+            FOODS[key] = { name: p.title, ...nutr };
+            set(ref(db, "racion/foods/" + key), FOODS[key]).catch(() => {});
           }
         }
         closeMSearch();
         renderMeals();
+      };
+
+      // ═══════════════════════════════
+      // FOOD DIRECTORY
+      // ═══════════════════════════════
+      let _editingFoodKey = null;
+
+      window.showFdTab = function(tab) {
+        document.getElementById('fd-tab-dir').classList.toggle('active', tab === 'dir');
+        document.getElementById('fd-tab-silpo').classList.toggle('active', tab === 'silpo');
+        document.getElementById('fd-dir').style.display   = tab === 'dir'   ? '' : 'none';
+        document.getElementById('fd-silpo').style.display = tab === 'silpo' ? '' : 'none';
+        if (tab === 'dir') renderFoodsDir();
+      };
+
+      window.renderFoodsDir = function() {
+        const filter = (document.getElementById('dirFilter')?.value || '').toLowerCase();
+        const list = document.getElementById('dirList');
+        if (!list) return;
+        const entries = Object.entries(FOODS)
+          .map(([key, val]) => ({
+            key,
+            name: val.name || key.replace(/_/g,' '),
+            kcal: val.kcal || 0,
+            protein: val.protein || 0,
+            fat: val.fat || 0,
+            carbs: val.carbs || 0,
+          }))
+          .filter(e => !filter || e.name.toLowerCase().includes(filter))
+          .sort((a, b) => a.name.localeCompare(b.name, 'uk'));
+
+        if (!entries.length) {
+          list.innerHTML = `<div class="dir-empty">Довідник порожній.<br>Натисни 🤖 Автоплан → Оновити КБЖУ,<br>або додай продукти через пошук Сільпо,<br>або вручну кнопкою "+ Додати".</div>`;
+          return;
+        }
+        list.innerHTML = entries.map(e => _editingFoodKey === e.key
+          ? _dirEditRowHtml(e)
+          : `<div class="dir-row">
+              <div class="dir-name">${e.name}</div>
+              <div class="dir-nutr">
+                <span class="dn-k">${Math.round(e.kcal)}</span>
+                <span>Б${+(e.protein).toFixed(1)}</span>
+                <span>Ж${+(e.fat).toFixed(1)}</span>
+                <span>В${+(e.carbs).toFixed(1)}</span>
+              </div>
+              <div class="dir-actions">
+                <button class="dir-btn" onclick="startEditFood('${e.key}')">✏️</button>
+                <button class="dir-btn" onclick="deleteFoodItem('${e.key}')">🗑️</button>
+              </div>
+            </div>`
+        ).join('');
+      };
+
+      function _dirEditRowHtml(e) {
+        return `<div class="dir-edit-row">
+          <input class="dir-edit-name" id="de_name" value="${e.name||''}" placeholder="Назва продукту">
+          <div class="dir-edit-grid">
+            <div class="dir-edit-cell"><input class="dir-edit-inp" id="de_kcal" type="number" value="${Math.round(e.kcal)||''}"><div class="dir-edit-lbl">Ккал</div></div>
+            <div class="dir-edit-cell"><input class="dir-edit-inp" id="de_prot" type="number" step="0.1" value="${+(e.protein).toFixed(1)||''}"><div class="dir-edit-lbl">Білок г</div></div>
+            <div class="dir-edit-cell"><input class="dir-edit-inp" id="de_fat"  type="number" step="0.1" value="${+(e.fat).toFixed(1)||''}"><div class="dir-edit-lbl">Жири г</div></div>
+            <div class="dir-edit-cell"><input class="dir-edit-inp" id="de_carb" type="number" step="0.1" value="${+(e.carbs).toFixed(1)||''}"><div class="dir-edit-lbl">Вуглев г</div></div>
+          </div>
+          <div class="dir-edit-btns">
+            <button class="dir-save-btn" onclick="saveFoodItem('${e.key}')">Зберегти</button>
+            <button class="dir-cancel-btn" onclick="cancelEditFood()">Скасувати</button>
+          </div>
+        </div>`;
+      }
+
+      window.startEditFood = function(key) {
+        _editingFoodKey = key;
+        renderFoodsDir();
+        setTimeout(() => document.getElementById('de_name')?.focus(), 50);
+      };
+
+      window.cancelEditFood = function() {
+        _editingFoodKey = null;
+        renderFoodsDir();
+      };
+
+      window.saveFoodItem = function(originalKey) {
+        const name   = document.getElementById('de_name')?.value.trim();
+        if (!name) { showToast('Введи назву продукту'); return; }
+        const kcal   = parseFloat(document.getElementById('de_kcal')?.value) || 0;
+        const protein= parseFloat(document.getElementById('de_prot')?.value) || 0;
+        const fat    = parseFloat(document.getElementById('de_fat')?.value)  || 0;
+        const carbs  = parseFloat(document.getElementById('de_carb')?.value) || 0;
+        const newKey = foodKey(name);
+        // Delete old key if name changed
+        if (originalKey !== '__new__' && newKey !== originalKey) {
+          delete FOODS[originalKey];
+          if (db) set(ref(db, 'racion/foods/' + originalKey), null).catch(() => {});
+        }
+        FOODS[newKey] = { name, kcal, protein, fat, carbs };
+        if (db) set(ref(db, 'racion/foods/' + newKey), FOODS[newKey]).catch(() => {});
+        _editingFoodKey = null;
+        renderFoodsDir();
+        showToast('Збережено ✓');
+      };
+
+      window.deleteFoodItem = function(key) {
+        const name = FOODS[key]?.name || key.replace(/_/g,' ');
+        if (!confirm(`Видалити "${name}" з довідника?`)) return;
+        delete FOODS[key];
+        if (db) set(ref(db, 'racion/foods/' + key), null).catch(() => {});
+        renderFoodsDir();
+        showToast('Видалено');
+      };
+
+      window.startAddFood = function() {
+        _editingFoodKey = '__new__';
+        const list = document.getElementById('dirList');
+        const div = document.createElement('div');
+        div.id = 'dir-add-row';
+        div.innerHTML = `<div class="dir-edit-row">
+          <input class="dir-edit-name" id="de_name" placeholder="Назва продукту">
+          <div class="dir-edit-grid">
+            <div class="dir-edit-cell"><input class="dir-edit-inp" id="de_kcal" type="number" placeholder="0"><div class="dir-edit-lbl">Ккал</div></div>
+            <div class="dir-edit-cell"><input class="dir-edit-inp" id="de_prot" type="number" step="0.1" placeholder="0"><div class="dir-edit-lbl">Білок г</div></div>
+            <div class="dir-edit-cell"><input class="dir-edit-inp" id="de_fat"  type="number" step="0.1" placeholder="0"><div class="dir-edit-lbl">Жири г</div></div>
+            <div class="dir-edit-cell"><input class="dir-edit-inp" id="de_carb" type="number" step="0.1" placeholder="0"><div class="dir-edit-lbl">Вуглев г</div></div>
+          </div>
+          <div class="dir-edit-btns">
+            <button class="dir-save-btn" onclick="saveFoodItem('__new__')">Зберегти</button>
+            <button class="dir-cancel-btn" onclick="cancelEditFood()">Скасувати</button>
+          </div>
+        </div>`;
+        list.insertBefore(div, list.firstChild);
+        setTimeout(() => document.getElementById('de_name')?.focus(), 50);
       };
 
       // ═══════════════════════════════
@@ -2029,8 +2198,8 @@
             if (nutr) {
               const entry = { ...nutr, silpoId: best.id, silpoSlug: best.slug, silpoTitle: best.title, silpoPrice: best.displayPrice, silpoPriceRatio: best.displayRatio };
               resolved[name] = entry;
-              FOODS[cKey] = nutr;
-              if (db) set(ref(db, 'racion/foods/' + cKey), nutr).catch(() => {});
+              FOODS[cKey] = { name, ...nutr };
+              if (db) set(ref(db, 'racion/foods/' + cKey), FOODS[cKey]).catch(() => {});
             }
           } catch(e) {}
           done++;
