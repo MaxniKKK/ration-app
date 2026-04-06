@@ -1,0 +1,1677 @@
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {
+  getDatabase,
+  ref,
+  set,
+  get,
+  onValue,
+  child,
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+// ═══════════════════════════════
+// CONSTANTS
+// ═══════════════════════════════
+// Silpo branch UUID (Хмельницький, вул. Свободи 73 — externalId 2653)
+// To change: fetch https://sf-ecom-api.silpo.ua/v1/uk/branches and pick branchId
+const SILPO_BRANCH = "1edb7346-0ee4-6ec8-90f1-11a6c487168c";
+const SILPO_API = "https://sf-ecom-api.silpo.ua/v1/uk/branches";
+
+const DAYS = [
+  "Неділя",
+  "Понеділок",
+  "Вівторок",
+  "Середа",
+  "Четвер",
+  "П'ятниця",
+  "Субота",
+];
+const DAYS_SH = ["НД", "ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ"];
+const MONTHS = [
+  "Січень",
+  "Лютий",
+  "Березень",
+  "Квітень",
+  "Травень",
+  "Червень",
+  "Липень",
+  "Серпень",
+  "Вересень",
+  "Жовтень",
+  "Листопад",
+  "Грудень",
+];
+const META = [
+  {
+    key: "breakfast",
+    name: "Сніданок",
+    time: "7:30",
+    ico: "🌅",
+    cls: "ib",
+  },
+  {
+    key: "snack1",
+    name: "Перекус 1",
+    time: "10:30",
+    ico: "🥗",
+    cls: "is",
+  },
+  { key: "lunch", name: "Обід", time: "13:00", ico: "🍽️", cls: "il" },
+  {
+    key: "snack2",
+    name: "Перекус 2",
+    time: "16:30",
+    ico: "🍎",
+    cls: "is2",
+  },
+  { key: "dinner", name: "Вечеря", time: "19:00", ico: "🌙", cls: "id" },
+];
+
+// ── КАТЕГОРІЇ СІЛЬПО для авто-мапінгу ───────────────────────────────────
+// Ключ — назва з PLAN_TEMPLATE, значення — масив підрядків які мають
+// зустрітися в sectionSlug продукту Сільпо. Без матчу — продукт відкидається.
+const FOOD_CATEGORIES = {
+  'Банан':                ['banany','frukty'],
+  'Яблука':               ['iabluka','frukty'],
+  'Апельсин':             ['tsytrus','apelsyn','frukty'],
+  'Помідор':              ['pomidor','tomat','ovoch'],
+  'Огірок':               ['ohirk','ovoch'],
+  'Картопля':             ['kartopl','ovoch'],
+  'Куряче філе':          ['kuriach','kurka','filie','miaso-pti'],
+  'Яйця курячі':          ['iaits','iaitse','iaichn'],
+  'Гречка':               ['hrechk','krup'],
+  'Рис':                  ['rys','krup'],
+  'Кефір 1%':             ['kefir'],
+  'Йогурт грецький':      ['yogurt','iohurt','grets'],
+  'Тунець консервований': ['tunets','rybni-konserv','konserv-rybn'],
+};
+
+// ── ТИЖНЕВИЙ ПЛАН (Ти ~2200 ккал / Вона ~1800 ккал) ─────────────────────
+// Тільки дозволені продукти. Назви перевірені в Сільпо API.
+// Заборонено: лосось, броколі, яловичина, горіхи, мед, свинина, форель
+const PLAN_TEMPLATE = {
+  you: {
+    1:{ totals:{kcal:2200,protein:175,fat:70,carbs:218},
+      breakfast:{kcal:0,items:[{n:'Яйця курячі',g:'110г'},{n:'Йогурт грецький',g:'150г'},{n:'Банан',g:'120г'}]},
+      snack1:   {kcal:0,items:[{n:'Кефір 1%',g:'250г'},{n:'Яблука',g:'150г'}]},
+      lunch:    {kcal:0,items:[{n:'Куряче філе',g:'220г'},{n:'Гречка',g:'110г'},{n:'Огірок',g:'150г'},{n:'Помідор',g:'100г'}]},
+      snack2:   {kcal:0,items:[{n:'Кефір 1%',g:'200г'},{n:'Банан',g:'100г'}]},
+      dinner:   {kcal:0,items:[{n:'Куряче філе',g:'200г'},{n:'Рис',g:'100г'},{n:'Помідор',g:'150г'}]}},
+    2:{ totals:{kcal:2200,protein:175,fat:70,carbs:218},
+      breakfast:{kcal:0,items:[{n:'Яйця курячі',g:'165г'},{n:'Помідор',g:'150г'},{n:'Йогурт грецький',g:'150г'}]},
+      snack1:   {kcal:0,items:[{n:'Кефір 1%',g:'250г'},{n:'Яблука',g:'150г'}]},
+      lunch:    {kcal:0,items:[{n:'Тунець консервований',g:'185г'},{n:'Картопля',g:'250г'},{n:'Огірок',g:'150г'}]},
+      snack2:   {kcal:0,items:[{n:'Йогурт грецький',g:'150г'},{n:'Банан',g:'100г'}]},
+      dinner:   {kcal:0,items:[{n:'Куряче філе',g:'200г'},{n:'Гречка',g:'110г'},{n:'Огірок',g:'150г'}]}},
+    3:{ totals:{kcal:2200,protein:175,fat:70,carbs:218},
+      breakfast:{kcal:0,items:[{n:'Яйця курячі',g:'110г'},{n:'Йогурт грецький',g:'200г'},{n:'Банан',g:'120г'}]},
+      snack1:   {kcal:0,items:[{n:'Кефір 1%',g:'250г'},{n:'Апельсин',g:'150г'}]},
+      lunch:    {kcal:0,items:[{n:'Куряче філе',g:'220г'},{n:'Рис',g:'110г'},{n:'Помідор',g:'150г'},{n:'Огірок',g:'100г'}]},
+      snack2:   {kcal:0,items:[{n:'Кефір 1%',g:'200г'},{n:'Яблука',g:'150г'}]},
+      dinner:   {kcal:0,items:[{n:'Тунець консервований',g:'185г'},{n:'Картопля',g:'250г'},{n:'Помідор',g:'100г'}]}},
+    4:{ totals:{kcal:2200,protein:175,fat:70,carbs:218},
+      breakfast:{kcal:0,items:[{n:'Яйця курячі',g:'165г'},{n:'Помідор',g:'150г'},{n:'Йогурт грецький',g:'150г'}]},
+      snack1:   {kcal:0,items:[{n:'Кефір 1%',g:'250г'},{n:'Банан',g:'120г'}]},
+      lunch:    {kcal:0,items:[{n:'Куряче філе',g:'220г'},{n:'Гречка',g:'110г'},{n:'Огірок',g:'150г'},{n:'Помідор',g:'100г'}]},
+      snack2:   {kcal:0,items:[{n:'Йогурт грецький',g:'150г'},{n:'Яблука',g:'150г'}]},
+      dinner:   {kcal:0,items:[{n:'Куряче філе',g:'200г'},{n:'Рис',g:'100г'},{n:'Огірок',g:'150г'}]}},
+    5:{ totals:{kcal:2200,protein:175,fat:70,carbs:218},
+      breakfast:{kcal:0,items:[{n:'Яйця курячі',g:'110г'},{n:'Йогурт грецький',g:'150г'},{n:'Банан',g:'120г'}]},
+      snack1:   {kcal:0,items:[{n:'Кефір 1%',g:'250г'},{n:'Апельсин',g:'150г'}]},
+      lunch:    {kcal:0,items:[{n:'Тунець консервований',g:'185г'},{n:'Рис',g:'110г'},{n:'Огірок',g:'150г'},{n:'Помідор',g:'100г'}]},
+      snack2:   {kcal:0,items:[{n:'Кефір 1%',g:'200г'},{n:'Яблука',g:'150г'}]},
+      dinner:   {kcal:0,items:[{n:'Куряче філе',g:'200г'},{n:'Гречка',g:'110г'},{n:'Помідор',g:'150г'}]}},
+    6:{ totals:{kcal:2200,protein:175,fat:70,carbs:218},
+      breakfast:{kcal:0,items:[{n:'Яйця курячі',g:'165г'},{n:'Помідор',g:'150г'},{n:'Йогурт грецький',g:'150г'}]},
+      snack1:   {kcal:0,items:[{n:'Кефір 1%',g:'250г'},{n:'Яблука',g:'150г'}]},
+      lunch:    {kcal:0,items:[{n:'Куряче філе',g:'220г'},{n:'Гречка',g:'110г'},{n:'Огірок',g:'150г'},{n:'Помідор',g:'100г'}]},
+      snack2:   {kcal:0,items:[{n:'Йогурт грецький',g:'150г'},{n:'Банан',g:'100г'}]},
+      dinner:   {kcal:0,items:[{n:'Куряче філе',g:'200г'},{n:'Картопля',g:'250г'},{n:'Огірок',g:'150г'}]}},
+    0:{ totals:{kcal:2200,protein:175,fat:70,carbs:218},
+      breakfast:{kcal:0,items:[{n:'Яйця курячі',g:'110г'},{n:'Йогурт грецький',g:'200г'},{n:'Банан',g:'120г'}]},
+      snack1:   {kcal:0,items:[{n:'Кефір 1%',g:'250г'},{n:'Апельсин',g:'150г'}]},
+      lunch:    {kcal:0,items:[{n:'Куряче філе',g:'220г'},{n:'Рис',g:'110г'},{n:'Огірок',g:'150г'},{n:'Помідор',g:'100г'}]},
+      snack2:   {kcal:0,items:[{n:'Кефір 1%',g:'200г'},{n:'Яблука',g:'150г'}]},
+      dinner:   {kcal:0,items:[{n:'Тунець консервований',g:'185г'},{n:'Картопля',g:'250г'},{n:'Помідор',g:'100г'}]}},
+  },
+  her: {
+    1:{ totals:{kcal:1800,protein:100,fat:65,carbs:195},
+      breakfast:{kcal:0,items:[{n:'Яйця курячі',g:'110г'},{n:'Йогурт грецький',g:'130г'},{n:'Банан',g:'100г'}]},
+      snack1:   {kcal:0,items:[{n:'Кефір 1%',g:'200г'},{n:'Яблука',g:'130г'}]},
+      lunch:    {kcal:0,items:[{n:'Куряче філе',g:'150г'},{n:'Гречка',g:'90г'},{n:'Огірок',g:'150г'},{n:'Помідор',g:'100г'}]},
+      snack2:   {kcal:0,items:[{n:'Кефір 1%',g:'200г'},{n:'Банан',g:'80г'}]},
+      dinner:   {kcal:0,items:[{n:'Куряче філе',g:'150г'},{n:'Рис',g:'90г'},{n:'Помідор',g:'100г'}]}},
+    2:{ totals:{kcal:1800,protein:100,fat:65,carbs:195},
+      breakfast:{kcal:0,items:[{n:'Яйця курячі',g:'110г'},{n:'Помідор',g:'150г'},{n:'Йогурт грецький',g:'130г'}]},
+      snack1:   {kcal:0,items:[{n:'Кефір 1%',g:'200г'},{n:'Яблука',g:'130г'}]},
+      lunch:    {kcal:0,items:[{n:'Тунець консервований',g:'150г'},{n:'Картопля',g:'200г'},{n:'Огірок',g:'150г'}]},
+      snack2:   {kcal:0,items:[{n:'Йогурт грецький',g:'130г'},{n:'Банан',g:'80г'}]},
+      dinner:   {kcal:0,items:[{n:'Куряче філе',g:'150г'},{n:'Гречка',g:'90г'},{n:'Огірок',g:'100г'}]}},
+    3:{ totals:{kcal:1800,protein:100,fat:65,carbs:195},
+      breakfast:{kcal:0,items:[{n:'Яйця курячі',g:'110г'},{n:'Йогурт грецький',g:'150г'},{n:'Банан',g:'100г'}]},
+      snack1:   {kcal:0,items:[{n:'Кефір 1%',g:'200г'},{n:'Апельсин',g:'130г'}]},
+      lunch:    {kcal:0,items:[{n:'Куряче філе',g:'150г'},{n:'Рис',g:'90г'},{n:'Помідор',g:'100г'},{n:'Огірок',g:'100г'}]},
+      snack2:   {kcal:0,items:[{n:'Кефір 1%',g:'200г'},{n:'Яблука',g:'130г'}]},
+      dinner:   {kcal:0,items:[{n:'Тунець консервований',g:'150г'},{n:'Картопля',g:'200г'},{n:'Помідор',g:'80г'}]}},
+    4:{ totals:{kcal:1800,protein:100,fat:65,carbs:195},
+      breakfast:{kcal:0,items:[{n:'Яйця курячі',g:'110г'},{n:'Помідор',g:'130г'},{n:'Йогурт грецький',g:'130г'}]},
+      snack1:   {kcal:0,items:[{n:'Кефір 1%',g:'200г'},{n:'Банан',g:'80г'}]},
+      lunch:    {kcal:0,items:[{n:'Куряче філе',g:'150г'},{n:'Гречка',g:'90г'},{n:'Огірок',g:'150г'},{n:'Помідор',g:'80г'}]},
+      snack2:   {kcal:0,items:[{n:'Йогурт грецький',g:'130г'},{n:'Яблука',g:'130г'}]},
+      dinner:   {kcal:0,items:[{n:'Куряче філе',g:'150г'},{n:'Рис',g:'90г'},{n:'Огірок',g:'100г'}]}},
+    5:{ totals:{kcal:1800,protein:100,fat:65,carbs:195},
+      breakfast:{kcal:0,items:[{n:'Яйця курячі',g:'110г'},{n:'Йогурт грецький',g:'130г'},{n:'Банан',g:'100г'}]},
+      snack1:   {kcal:0,items:[{n:'Кефір 1%',g:'200г'},{n:'Апельсин',g:'130г'}]},
+      lunch:    {kcal:0,items:[{n:'Тунець консервований',g:'150г'},{n:'Рис',g:'90г'},{n:'Огірок',g:'150г'},{n:'Помідор',g:'80г'}]},
+      snack2:   {kcal:0,items:[{n:'Кефір 1%',g:'200г'},{n:'Яблука',g:'130г'}]},
+      dinner:   {kcal:0,items:[{n:'Куряче філе',g:'150г'},{n:'Гречка',g:'90г'},{n:'Помідор',g:'100г'}]}},
+    6:{ totals:{kcal:1800,protein:100,fat:65,carbs:195},
+      breakfast:{kcal:0,items:[{n:'Яйця курячі',g:'110г'},{n:'Помідор',g:'130г'},{n:'Йогурт грецький',g:'130г'}]},
+      snack1:   {kcal:0,items:[{n:'Кефір 1%',g:'200г'},{n:'Яблука',g:'130г'}]},
+      lunch:    {kcal:0,items:[{n:'Куряче філе',g:'150г'},{n:'Гречка',g:'90г'},{n:'Огірок',g:'150г'},{n:'Помідор',g:'80г'}]},
+      snack2:   {kcal:0,items:[{n:'Йогурт грецький',g:'130г'},{n:'Банан',g:'80г'}]},
+      dinner:   {kcal:0,items:[{n:'Куряче філе',g:'150г'},{n:'Картопля',g:'200г'},{n:'Огірок',g:'100г'}]}},
+    0:{ totals:{kcal:1800,protein:100,fat:65,carbs:195},
+      breakfast:{kcal:0,items:[{n:'Яйця курячі',g:'110г'},{n:'Йогурт грецький',g:'150г'},{n:'Банан',g:'100г'}]},
+      snack1:   {kcal:0,items:[{n:'Кефір 1%',g:'200г'},{n:'Апельсин',g:'130г'}]},
+      lunch:    {kcal:0,items:[{n:'Куряче філе',g:'150г'},{n:'Рис',g:'90г'},{n:'Огірок',g:'150г'},{n:'Помідор',g:'80г'}]},
+      snack2:   {kcal:0,items:[{n:'Кефір 1%',g:'200г'},{n:'Яблука',g:'130г'}]},
+      dinner:   {kcal:0,items:[{n:'Тунець консервований',g:'150г'},{n:'Картопля',g:'200г'},{n:'Помідор',g:'80г'}]}},
+  },
+};
+
+
+// ═══════════════════════════════
+// STATE
+// ═══════════════════════════════
+let db = null,
+  MENU = {},
+  DIARY = {},
+  FOODS = {};
+let curDay = new Date().getDay(),
+  person = "you",
+  editMode = false;
+let calY = new Date().getFullYear(),
+  calM = new Date().getMonth(),
+  calView = "month",
+  selDate = null;
+let _msCtx = null, _msFoods = [], _remapKey = null;
+
+// Initialize MENU from plan template so first render has valid structure
+applyPlanTemplate();
+
+// ═══════════════════════════════
+// FIREBASE SETUP
+// ═══════════════════════════════
+window.saveFirebaseConfig = function () {
+  const cfg = {
+    apiKey: document.getElementById("s_apiKey").value.trim(),
+    authDomain: document.getElementById("s_authDomain").value.trim(),
+    databaseURL: document.getElementById("s_dbUrl").value.trim(),
+    projectId: document.getElementById("s_projectId").value.trim(),
+    appId: document.getElementById("s_appId").value.trim(),
+    storageBucket:
+      document.getElementById("s_projectId").value.trim() +
+      ".appspot.com",
+    messagingSenderId: "000000000000",
+  };
+  if (!cfg.apiKey || !cfg.databaseURL) {
+    showToast("Заповни всі поля!", "err");
+    return;
+  }
+  localStorage.setItem("fb_cfg", JSON.stringify(cfg));
+  document.getElementById("setupScreen").classList.add("hide");
+  initFirebase(cfg);
+};
+
+function initFirebase(cfg) {
+  document.getElementById("loader").style.display = "flex";
+  document.getElementById("loaderSub").textContent =
+    "Підключення до Firebase...";
+  try {
+    const app = initializeApp(cfg);
+    db = getDatabase(app);
+    document.getElementById("loaderSub").textContent =
+      "Завантаження меню...";
+    // Load menu from Firebase, fallback to defaults
+    const menuRef = ref(db, "racion/menu");
+    onValue(menuRef, (snap) => {
+      const val = snap.val();
+      if (val) MENU = val;
+      // Auto-migrate: replace menu if it contains forbidden products
+      const FORBIDDEN = ['Лосось','Яловичина','Броколі','Свинина','Форель','Мигдаль','Горіх'];
+      const hasForbidden = ['you','her'].some(p =>
+        [0,1,2,3,4,5,6].some(d =>
+          ['breakfast','snack1','lunch','snack2','dinner'].some(mk =>
+            (MENU[p]?.[d]?.[mk]?.items||[]).some(it =>
+              FORBIDDEN.some(f => it.n?.includes(f))
+            )
+          )
+        )
+      );
+      if (hasForbidden || !val) {
+        applyPlanTemplate();
+        set(ref(db, "racion/menu"), MENU);
+      }
+      renderMenuPage();
+      setSyncStatus("ok", "Синхронізовано");
+    });
+    // Load diary
+    const diaryRef = ref(db, "racion/diary");
+    onValue(diaryRef, (snap) => {
+      const val = snap.val();
+      if (val) DIARY = val;
+    });
+    // Load foods cache
+    const foodsRef = ref(db, "racion/foods");
+    onValue(foodsRef, (snap) => {
+      const val = snap.val();
+      if (val) FOODS = val;
+      // Refresh directory if it's open
+      const searchScreen = document.getElementById('screen-search');
+      if (searchScreen?.classList.contains('active')) renderFoodsDir();
+    });
+    // Show app
+    document.getElementById("loader").classList.add("hide");
+    document.getElementById("mainNav").style.display = "flex";
+    document
+      .querySelectorAll(".screen")
+      .forEach((s) => s.removeAttribute("style"));
+    renderDays();
+    renderMenuPage();
+    logToday();
+  } catch (e) {
+    document.getElementById("loaderSub").textContent =
+      "Помилка: " + e.message;
+    showToast("Помилка Firebase — перевір дані", "err");
+  }
+}
+
+// Use saved config, or fall back to hardcoded FIREBASE_CONFIG, then show setup form
+const savedCfg = localStorage.getItem("fb_cfg");
+const bootCfg = savedCfg ? JSON.parse(savedCfg) : (window.FIREBASE_CONFIG || null);
+if (bootCfg) {
+  document.getElementById("setupScreen").classList.add("hide");
+  try {
+    initFirebase(bootCfg);
+  } catch (e) {
+    document.getElementById("setupScreen").classList.remove("hide");
+    document.getElementById("loader").classList.add("hide");
+  }
+} else {
+  document.getElementById("loader").classList.add("hide");
+}
+
+// ═══════════════════════════════
+// SYNC HELPERS
+// ═══════════════════════════════
+function setSyncStatus(state, txt) {
+  const dot = document
+    .getElementById("syncStatus")
+    .querySelector(".sdot");
+  dot.className =
+    "sdot" +
+    (state === "syncing"
+      ? " syncing"
+      : state === "err"
+        ? " offline"
+        : "");
+  document.getElementById("syncTxt").textContent = txt;
+}
+
+async function pushMenu() {
+  if (!db) return;
+  setSyncStatus("syncing", "Зберігаємо...");
+  try {
+    await set(ref(db, "racion/menu"), MENU);
+    setSyncStatus("ok", "Збережено ✓");
+    setTimeout(() => setSyncStatus("ok", "Синхронізовано"), 2000);
+  } catch (e) {
+    setSyncStatus("err", "Помилка збереження");
+    showToast("Помилка синхронізації", "err");
+  }
+}
+
+async function pushDiary() {
+  if (!db) return;
+  try {
+    await set(ref(db, "racion/diary"), DIARY);
+  } catch (e) {}
+}
+
+function dateKey(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function keyToDate(k) {
+  const [y, m, d] = k.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function logToday() {
+  const d = new Date(),
+    key = dateKey(d),
+    dow = d.getDay();
+  if (!DIARY[key]) {
+    DIARY[key] = {
+      you: JSON.parse(JSON.stringify(MENU.you[dow])),
+      her: JSON.parse(JSON.stringify(MENU.her[dow])),
+    };
+    pushDiary();
+  }
+}
+
+// ═══════════════════════════════
+// SCREEN SWITCHER
+// ═══════════════════════════════
+window.showScreen = function (s) {
+  document
+    .querySelectorAll(".screen")
+    .forEach((x) => x.classList.remove("active"));
+  document
+    .querySelectorAll(".nav-tab")
+    .forEach((x) => x.classList.remove("active"));
+  document.getElementById("screen-" + s).classList.add("active");
+  document.getElementById("nt-" + s).classList.add("active");
+  if (s === "diary") renderCal();
+  if (s === "search") renderFoodsDir();
+};
+
+// ═══════════════════════════════
+// MENU
+// ═══════════════════════════════
+window.goToday = function () {
+  curDay = new Date().getDay();
+  renderDays();
+  renderMenuPage();
+};
+
+function renderDays() {
+  const sc = document.getElementById("daysScroll");
+  const now = new Date();
+  const todayDow = now.getDay(); // 0=Sun
+  // ISO week: Mon=1..Sat=6, Sun=7
+  const todayIso = todayDow === 0 ? 7 : todayDow;
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - (todayIso - 1));
+  sc.innerHTML = "";
+  [1, 2, 3, 4, 5, 6, 0].forEach((d) => {
+    // d=0 is Sunday = ISO day 7 = monday + 6
+    const isoD = d === 0 ? 7 : d;
+    const dt = new Date(monday);
+    dt.setDate(monday.getDate() + (isoD - 1));
+    const dateNum = dt.getDate();
+    const b = document.createElement("div");
+    b.className =
+      "day-btn" +
+      (d === curDay ? " active" : "") +
+      (d === todayDow && d !== curDay ? " today" : "");
+    b.innerHTML = `<span class="ds">${DAYS_SH[d]}</span><span class="da">${dateNum}</span>`;
+    b.onclick = () => {
+      curDay = d;
+      renderDays();
+      renderMenuPage();
+    };
+    sc.appendChild(b);
+  });
+}
+
+window.setPerson = function (p) {
+  person = p;
+  document.body.className = p === "you" ? "py" : "ph";
+  document
+    .querySelectorAll(".ptab")
+    .forEach((t) => t.classList.remove("active"));
+  document.querySelector(".ptab." + p).classList.add("active");
+  renderMenuPage();
+};
+
+window.toggleEdit = function () {
+  editMode = !editMode;
+  document.getElementById("btnEdit").classList.toggle("on", editMode);
+  document.getElementById("editBanner").classList.toggle("on", editMode);
+  document.getElementById("savebar").classList.toggle("on", editMode);
+  document.getElementById("etr").classList.toggle("on", editMode);
+  if (editMode) {
+    const t = MENU[person][curDay].totals;
+    document.getElementById("et_k").value = t.kcal;
+    document.getElementById("et_p").value = t.protein;
+    document.getElementById("et_f").value = t.fat;
+    document.getElementById("et_c").value = t.carbs;
+  }
+  renderMeals();
+};
+
+window.cancelEdit = function () {
+  editMode = false;
+  ["btnEdit", "editBanner", "savebar", "etr"].forEach((id) =>
+    document.getElementById(id).classList.remove("on"),
+  );
+  renderMenuPage();
+};
+
+window.saveEdit = async function () {
+  const btn = document.getElementById("bsave");
+  btn.disabled = true;
+  btn.textContent = "Зберігаємо...";
+  const t = MENU[person][curDay].totals;
+  t.kcal = parseInt(document.getElementById("et_k").value) || t.kcal;
+  t.protein =
+    parseInt(document.getElementById("et_p").value) || t.protein;
+  t.fat = parseInt(document.getElementById("et_f").value) || t.fat;
+  t.carbs = parseInt(document.getElementById("et_c").value) || t.carbs;
+  await pushMenu();
+  // update diary for today
+  const key = dateKey(new Date()),
+    dow = new Date().getDay();
+  if (String(curDay) === String(dow)) {
+    DIARY[key] = {
+      you: JSON.parse(JSON.stringify(MENU.you[dow])),
+      her: JSON.parse(JSON.stringify(MENU.her[dow])),
+    };
+    await pushDiary();
+  }
+  editMode = false;
+  ["btnEdit", "editBanner", "savebar", "etr"].forEach((id) =>
+    document.getElementById(id).classList.remove("on"),
+  );
+  btn.disabled = false;
+  btn.textContent = "☁️ Зберегти для обох";
+  renderMenuPage();
+  showToast("☁️ Збережено для обох!");
+};
+
+function renderMenuPage() {
+  document.getElementById("dayLbl").textContent = DAYS[curDay];
+  document.getElementById("daySub").textContent =
+    person === "you"
+      ? "Твій раціон · 2 200 ккал · дефіцит"
+      : "Її раціон · 1 800 ккал · підтримка";
+  document.getElementById("waterG").textContent =
+    person === "you" ? "3–3.5 л" : "1.5–2 л";
+  renderMeals();
+  renderTotals();
+}
+
+function renderTotals() {
+  const t = MENU[person][curDay].totals;
+  let kcal = 0, protein = 0, fat = 0, carbs = 0, anyAuto = false;
+  META.forEach(m => {
+    const meal = MENU[person][curDay][m.key];
+    const calc = calcMealNutr(meal);
+    if (calc) {
+      kcal    += calc.kcal;
+      protein += calc.protein;
+      fat     += calc.fat;
+      carbs   += calc.carbs;
+      anyAuto = true;
+    } else {
+      kcal += meal.kcal || 0;
+    }
+  });
+  protein = Math.round(protein * 10) / 10;
+  fat     = Math.round(fat     * 10) / 10;
+  carbs   = Math.round(carbs   * 10) / 10;
+  const pv = anyAuto ? protein + "г" : t.protein + "г";
+  const fv = anyAuto ? fat     + "г" : t.fat     + "г";
+  const cv = anyAuto ? carbs   + "г" : t.carbs   + "г";
+  document.getElementById("totGrid").innerHTML = `
+    <div class="ti2"><span class="tv">${kcal}</span><span class="tl">ккал</span></div>
+    <div class="ti2"><span class="tv">${pv}</span><span class="tl">білок</span></div>
+    <div class="ti2"><span class="tv">${fv}</span><span class="tl">жири</span></div>
+    <div class="ti2"><span class="tv">${cv}</span><span class="tl">вуглев.</span></div>`;
+}
+
+function renderMeals() {
+  const list = document.getElementById("mealsList");
+  list.innerHTML = "";
+  META.forEach((m, idx) => {
+    const meal = MENU[person][curDay][m.key];
+    const card = document.createElement("div");
+    card.className =
+      "meal-card" +
+      (idx > 0 ? " collapsed" : "") +
+      (editMode ? " em" : "");
+    card.id = "mc_" + m.key;
+    let body = "";
+    if (editMode) {
+      const rows = meal.items.map((it, i) => {
+        const hasN = it.kcal_per_100 != null && parseG(it.g) > 0;
+        const iKc = hasN ? Math.round(parseG(it.g) * it.kcal_per_100 / 100) : 0;
+        return `
+  <div class="erow">
+    <input class="ein ein-search" value="${(it.n||'').replace(/"/g,'&quot;')}" placeholder="🔍 Пошук в Сільпо..." readonly onclick="openMSearch('${m.key}',${i})">
+    <input class="ein sm" value="${it.g||''}" placeholder="г" oninput="updG('${m.key}',${i},this.value)">
+    <span class="item-kcal" id="ikcal_${m.key}_${i}" ${!hasN?'style="display:none"':''}>${iKc}кк</span>
+    <button class="bdel" onclick="delRow('${m.key}',${i})">✕</button>
+  </div>`;
+      }).join("");
+      const mCalc = calcMealNutr(meal);
+      const allAuto = mCalc != null && !mCalc.partial;
+      const autoTotal = mCalc != null ? mCalc.kcal : meal.kcal;
+      if (allAuto) meal.kcal = autoTotal;
+      body = `<div class="mbody"><div class="eitems">${rows}</div>
+  <div class="emf">
+    <button class="badd" onclick="addRow('${m.key}')">+ Додати</button>
+    <div class="ek-wrap">
+      <input class="ekc" id="ekc_${m.key}" value="${autoTotal}" oninput="updKcal('${m.key}',this.value)" ${allAuto?'style="border-color:var(--accent);color:var(--accent)"':''}>
+      <span>${allAuto?'<span class="auto-lbl">авто</span> ':''} ккал</span>
+    </div>
+  </div></div>`;
+    } else {
+      const lis = meal.items.map(it => {
+        const g = parseG(it.g);
+        const iKcal = (it.kcal_per_100 != null && g > 0)
+          ? Math.round(g * it.kcal_per_100 / 100) : null;
+        const srcLink = getItemSourceLink(it);
+        return `<li>${it.n || ""}${it.g ? `<span class="vgr">${it.g}</span>` : ""}${iKcal != null ? `<span class="item-kcal">${iKcal}кк</span>` : ""}${srcLink}</li>`;
+      }).join("");
+      body = `<div class="mbody"><ul class="vitems">${lis}</ul></div>`;
+    }
+    const calc = calcMealNutr(meal);
+    const displayKcal = calc != null ? calc.kcal : (meal.kcal || 0);
+    card.innerHTML = `
+<div class="meal-hdr" onclick="toggleCard('${m.key}')">
+  <div class="meal-left">
+    <div class="meal-ico ${m.cls}">${m.ico}</div>
+    <div><div class="meal-nm">${m.name}</div><div class="meal-tm">${m.time}</div></div>
+  </div>
+  <div class="meal-r">
+    <div class="meal-kc" id="mkc_${m.key}">${displayKcal} ккал</div>
+    <div class="arr">▼</div>
+  </div>
+</div>${body}`;
+    list.appendChild(card);
+    if (editMode) card.classList.remove("collapsed");
+  });
+}
+
+window.toggleCard = (k) => {
+  if (!editMode)
+    document.getElementById("mc_" + k).classList.toggle("collapsed");
+};
+window.upd = (mk, i, f, v) => {
+  MENU[person][curDay][mk].items[i][f] = v;
+};
+window.updKcal = (mk, v) => {
+  MENU[person][curDay][mk].kcal = parseInt(v) || 0;
+  const el = document.getElementById("mkc_" + mk);
+  if (el) el.textContent = (parseInt(v) || 0) + " ккал";
+};
+window.delRow = (mk, i) => {
+  MENU[person][curDay][mk].items.splice(i, 1);
+  renderMeals();
+};
+window.addRow = (mk) => {
+  MENU[person][curDay][mk].items.push({ n: "", g: "" });
+  renderMeals();
+  setTimeout(() => {
+    const c = document.getElementById("mc_" + mk);
+    if (c) {
+      const rr = c.querySelectorAll(".erow");
+      if (rr.length)
+        rr[rr.length - 1].scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+        });
+    }
+  }, 80);
+};
+
+// ═══════════════════════════════
+// FOOD AUTO-CALC
+// ═══════════════════════════════
+function foodKey(n) {
+  return n.toLowerCase().trim().replace(/[.#$[\]/\s]+/g, "_");
+}
+
+// Parse gram value from any string: "220г", "2шт", "4 яйця", "150" → grams
+function parseG(g) {
+  if (!g && g !== 0) return 0;
+  const s = String(g).trim().toLowerCase();
+  const n = parseFloat(s.replace(/[^\d.]/g, "")) || 0;
+  if (!n) return 0;
+  if (/яйц/.test(s)) return Math.round(n * 55); // 1 яйце ≈ 55г
+  return n;
+}
+
+// Calculate nutrition for a meal from its items' Silpo data
+// Returns { kcal, protein, fat, carbs, partial } or null if no data at all
+function calcMealNutr(meal) {
+  const items = meal.items || [];
+  let kcal = 0, protein = 0, fat = 0, carbs = 0, count = 0;
+  for (const it of items) {
+    const g = parseG(it.g);
+    if (it.kcal_per_100 != null && g > 0) {
+      kcal    += Math.round(g * it.kcal_per_100 / 100);
+      protein += it.protein_per_100 != null ? g * it.protein_per_100 / 100 : 0;
+      fat     += it.fat_per_100     != null ? g * it.fat_per_100     / 100 : 0;
+      carbs   += it.carbs_per_100   != null ? g * it.carbs_per_100   / 100 : 0;
+      count++;
+    }
+  }
+  if (!count) return null;
+  return {
+    kcal,
+    protein: Math.round(protein * 10) / 10,
+    fat:     Math.round(fat     * 10) / 10,
+    carbs:   Math.round(carbs   * 10) / 10,
+    partial: count < items.length,
+  };
+}
+
+function recalcMealKcal(mk) {
+  const meal = MENU[person][curDay][mk];
+  const calc = calcMealNutr(meal);
+  if (!calc) return;
+  meal.kcal = calc.kcal;
+  const el = document.getElementById("mkc_" + mk);
+  if (el) el.textContent = calc.kcal + " ккал";
+  const ekc = document.getElementById("ekc_" + mk);
+  if (ekc) { ekc.value = calc.kcal; ekc.style.borderColor = "var(--accent)"; ekc.style.color = "var(--accent)"; }
+  renderTotals();
+}
+
+window.updG = function(mk, i, v) {
+  MENU[person][curDay][mk].items[i].g = v;
+  const iEl = document.getElementById("ikcal_" + mk + "_" + i);
+  if (iEl) {
+    const it = MENU[person][curDay][mk].items[i];
+    const g = parseG(v);
+    if (it.kcal_per_100 && g > 0) {
+      iEl.textContent = Math.round(g * it.kcal_per_100 / 100) + "кк";
+      iEl.style.display = "";
+    } else {
+      iEl.style.display = "none";
+    }
+  }
+  recalcMealKcal(mk);
+};
+
+window.openMSearch = function(mk, i) {
+  _msCtx = { mk, i };
+  const cur = MENU[person][curDay][mk].items[i];
+  document.getElementById("msInp").value = cur.n || "";
+  document.getElementById("msRes").innerHTML = "";
+  document.getElementById("msearch").classList.add("on");
+  setTimeout(() => document.getElementById("msInp").focus(), 120);
+};
+
+window.closeMSearch = function() {
+  document.getElementById("msearch").classList.remove("on");
+  _msCtx = null;
+  _remapKey = null;
+};
+
+window.doMSearch = async function() {
+  const q = document.getElementById("msInp").value.trim();
+  if (!q) return;
+  const res = document.getElementById("msRes");
+  const btn = document.querySelector(".msd-btn");
+  btn.disabled = true;
+  res.innerHTML = `<div style="text-align:center;padding:20px;color:var(--muted);font-size:12px"><div class="spin" style="margin:0 auto 8px"></div><br>Шукаємо в Сільпо...</div>`;
+  try {
+    const r = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products?limit=20&search=${encodeURIComponent(q)}`, {
+      headers: { accept: "application/json" }
+    });
+    const data = await r.json();
+    // Smart sort: exact/word matches first, shorter titles preferred
+    // No category filter — manual mode lets user pick anything
+    const items = (data.items || []).slice().sort((a, b) =>
+      silpoMatchScore(q, a, null) - silpoMatchScore(q, b, null)
+    );
+    if (!items.length) {
+      res.innerHTML = `<div style="text-align:center;padding:20px;color:var(--muted);font-size:12px">😔 Нічого не знайдено в Сільпо</div>`;
+    } else {
+      _msFoods = items;
+      res.innerHTML = items.map((p, idx) => {
+        const price = p.displayPrice ? `${p.displayPrice} грн/${p.displayRatio || "шт"}` : "";
+        const thumb = p.icon ? `<img src="https://images.silpo.ua/products/100x100/${p.icon}" style="width:38px;height:38px;object-fit:contain;border-radius:6px;background:var(--card2);flex-shrink:0;margin-right:9px" onerror="this.style.display='none'">` : '';
+        return `<div class="msd-item" onclick="selectMsItem(${idx})" style="display:flex;align-items:center">
+          ${thumb}
+          <div style="flex:1;min-width:0">
+            <div class="msd-iname">${p.title}${p.brandTitle ? ` <span style="color:var(--muted);font-weight:400">${p.brandTitle}</span>` : ""}</div>
+            <div class="msd-imac"><span style="color:var(--muted)">${price}</span></div>
+          </div>
+        </div>`;
+      }).join("");
+    }
+  } catch(e) {
+    res.innerHTML = `<div style="text-align:center;padding:20px;color:var(--muted);font-size:12px">⚠️ Помилка мережі</div>`;
+  }
+  btn.disabled = false;
+};
+
+// Router — picks behavior based on whether we're in remap or edit-row mode
+window.selectMsItem = function(idx) {
+  if (_remapKey) return applyRemap(idx);
+  return selectFoodForEdit(idx);
+};
+
+// Parse Silpo nutrient attributeGroups → { kcal, protein, fat, carbs }
+function parseSilpoNutr(attributeGroups) {
+  const group = (attributeGroups || []).find(ag => ag.key === "nutrient");
+  if (!group) return null;
+  const get = (key) => {
+    const a = group.attributes.find(a => a.attribute.key === key);
+    if (!a) return null;
+    const v = a.value;
+    // title holds numeric value; key holds "kcal/kJ" string for calorie
+    if (key === "calorie") {
+      const raw = v.key || v.title || "";
+      return parseFloat(String(raw).replace(",",".").split("/")[0]) || null;
+    }
+    return v.title != null ? parseFloat(v.title) : null;
+  };
+  const kcal = get("calorie");
+  if (!kcal) return null;
+  return { kcal, protein: get("proteins"), fat: get("fats"), carbs: get("carbohydrates") };
+}
+
+window.selectFoodForEdit = async function(idx) {
+  if (!_msCtx) return;
+  const p = _msFoods[idx];
+  const res = document.getElementById("msRes");
+  // Show loading state on clicked item
+  const el = res.querySelectorAll(".msd-item")[idx];
+  if (el) el.querySelector(".msd-imac").innerHTML = `<span style="color:var(--accent)">Завантажуємо КБЖУ...</span>`;
+
+  let nutr = null;
+  try {
+    const r = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products/${p.slug}`, {
+      headers: { accept: "application/json" }
+    });
+    const detail = await r.json();
+    nutr = parseSilpoNutr(detail.attributeGroups);
+  } catch(e) {}
+
+  const { mk, i } = _msCtx;
+  const item = MENU[person][curDay][mk].items[i];
+  const alias = item.n || p.title; // keep existing alias, fall back to Silpo title
+  item.n = alias;
+  item.silpoId = p.id;
+  item.silpoSlug = p.slug;
+  item.silpoPrice = p.displayPrice;
+  item.silpoPriceRatio = p.displayRatio;
+  if (nutr) {
+    item.kcal_per_100 = nutr.kcal;
+    item.protein_per_100 = nutr.protein;
+    item.fat_per_100 = nutr.fat;
+    item.carbs_per_100 = nutr.carbs;
+    // Save to directory with alias + Silpo origin
+    const key = foodKey(alias);
+    FOODS[key] = { name: alias, silpoTitle: p.title, silpoSlug: p.slug, silpoIcon: p.icon || null, source: 'silpo', ...nutr };
+    if (db) set(ref(db, "racion/foods/" + key), FOODS[key]).catch(() => {});
+  }
+  closeMSearch();
+  renderMeals();
+};
+
+// ═══════════════════════════════
+// FOOD DIRECTORY
+// ═══════════════════════════════
+let _editingFoodKey = null;
+
+window.showFdTab = function(tab) {
+  document.getElementById('fd-tab-dir').classList.toggle('active', tab === 'dir');
+  document.getElementById('fd-tab-silpo').classList.toggle('active', tab === 'silpo');
+  document.getElementById('fd-dir').style.display   = tab === 'dir'   ? '' : 'none';
+  document.getElementById('fd-silpo').style.display = tab === 'silpo' ? '' : 'none';
+  if (tab === 'dir') renderFoodsDir();
+};
+
+window.renderFoodsDir = function() {
+  const filter = (document.getElementById('dirFilter')?.value || '').toLowerCase();
+  const list = document.getElementById('dirList');
+  if (!list) return;
+  const entries = Object.entries(FOODS)
+    .map(([key, val]) => ({
+      key,
+      name: val.name || key.replace(/_/g,' '),
+      kcal: val.kcal || 0,
+      protein: val.protein || 0,
+      fat: val.fat || 0,
+      carbs: val.carbs || 0,
+      silpoTitle: val.silpoTitle || null,
+      silpoSlug: val.silpoSlug || null,
+      source: val.source || null,
+    }))
+    .filter(e => !filter || e.name.toLowerCase().includes(filter))
+    .sort((a, b) => a.name.localeCompare(b.name, 'uk'));
+
+  if (!entries.length) {
+    list.innerHTML = `<div class="dir-empty">Довідник порожній.<br>Натисни 🤖 Автоплан → Оновити КБЖУ,<br>або додай продукти через пошук Сільпо,<br>або вручну кнопкою "+ Додати".</div>`;
+    return;
+  }
+  list.innerHTML = entries.map(e => {
+    if (_editingFoodKey === e.key) return _dirEditRowHtml(e);
+    const showSilpoTitle = e.silpoTitle && e.silpoTitle !== e.name;
+    const linkHtml = e.silpoSlug
+      ? (e.source === 'silpo'
+          ? `<a class="dir-link-a" href="https://silpo.ua/product/${e.silpoSlug}" target="_blank" onclick="event.stopPropagation()">↗ Сільпо</a>`
+          : `<span class="dir-link-off" title="Дані відредаговано вручну">✎ ред.</span>`)
+      : '';
+    const isSel = _dirSelected.has(e.key);
+    const cbHtml = _dirSelectMode
+      ? `<input type="checkbox" class="dir-row-cb" data-key="${e.key}" ${isSel ? 'checked' : ''} onchange="toggleDirItem('${e.key}')">`
+      : '';
+    const actionsHtml = _dirSelectMode ? '' : `<div class="dir-actions">
+        <button class="dir-btn" onclick="event.stopPropagation();startEditFood('${e.key}')">✏️</button>
+        <button class="dir-btn" onclick="event.stopPropagation();deleteFoodItem('${e.key}')">🗑️</button>
+      </div>`;
+    const rowClick = _dirSelectMode ? `toggleDirItem('${e.key}')` : `openPCard('${e.key}')`;
+    return `<div class="dir-row${isSel ? ' sel' : ''}" style="${!_dirSelectMode ? 'cursor:pointer' : ''}" onclick="${rowClick}">
+      ${cbHtml}
+      <div class="dir-names">
+        <div class="dir-alias">${e.name}</div>
+        ${showSilpoTitle ? `<div class="dir-stitle">${e.silpoTitle}</div>` : ''}
+      </div>
+      <div class="dir-nutr">
+        <span class="dn-k">${Math.round(e.kcal)}</span>
+        <span>Б${+(e.protein).toFixed(1)}</span>
+        <span>Ж${+(e.fat).toFixed(1)}</span>
+        <span>В${+(e.carbs).toFixed(1)}</span>
+      </div>
+      ${_dirSelectMode ? '' : linkHtml}
+      ${actionsHtml}
+    </div>`;
+  }).join('');
+};
+
+function _dirEditRowHtml(e) {
+  const srcInfo = e.silpoSlug
+    ? `<div class="dir-src-info">Джерело: <a href="https://silpo.ua/product/${e.silpoSlug}" target="_blank">${e.silpoTitle || e.name}</a>${e.source==='manual' ? ' (відредаговано)' : ''}<br><small style="color:var(--muted)">Після збереження посилання стане неактивним</small></div>`
+    : '';
+  return `<div class="dir-edit-row">
+    <input class="dir-edit-name" id="de_name" value="${e.name||''}" placeholder="Назва (аліас)">
+    <div class="dir-edit-grid">
+      <div class="dir-edit-cell"><input class="dir-edit-inp" id="de_kcal" type="number" value="${Math.round(e.kcal)||''}"><div class="dir-edit-lbl">Ккал</div></div>
+      <div class="dir-edit-cell"><input class="dir-edit-inp" id="de_prot" type="number" step="0.1" value="${+(e.protein).toFixed(1)||''}"><div class="dir-edit-lbl">Білок г</div></div>
+      <div class="dir-edit-cell"><input class="dir-edit-inp" id="de_fat"  type="number" step="0.1" value="${+(e.fat).toFixed(1)||''}"><div class="dir-edit-lbl">Жири г</div></div>
+      <div class="dir-edit-cell"><input class="dir-edit-inp" id="de_carb" type="number" step="0.1" value="${+(e.carbs).toFixed(1)||''}"><div class="dir-edit-lbl">Вуглев г</div></div>
+    </div>
+    ${srcInfo}
+    <div class="dir-edit-btns">
+      <button class="dir-save-btn" onclick="saveFoodItem('${e.key}')">Зберегти</button>
+      <button class="dir-cancel-btn" onclick="cancelEditFood()">Скасувати</button>
+    </div>
+  </div>`;
+}
+
+window.startEditFood = function(key) {
+  _editingFoodKey = key;
+  renderFoodsDir();
+  setTimeout(() => document.getElementById('de_name')?.focus(), 50);
+};
+
+window.cancelEditFood = function() {
+  _editingFoodKey = null;
+  renderFoodsDir();
+};
+
+// ── BULK SELECT ─────────────────────────────────────────────────────────
+let _dirSelectMode = false;
+let _dirSelected = new Set();
+
+window.toggleDirSelectMode = function() {
+  _dirSelectMode = !_dirSelectMode;
+  _dirSelected.clear();
+  document.getElementById('dirSelBar').classList.toggle('on', _dirSelectMode);
+  document.getElementById('btnDirSel').style.color = _dirSelectMode ? 'var(--accent2)' : '';
+  document.getElementById('btnDirSel').style.borderColor = _dirSelectMode ? 'var(--accent2)' : '';
+  renderFoodsDir();
+};
+
+window.toggleDirItem = function(key) {
+  if (_dirSelected.has(key)) _dirSelected.delete(key);
+  else _dirSelected.add(key);
+  _updateSelCount();
+  // Toggle .sel class without re-rendering
+  const rows = document.querySelectorAll('.dir-row');
+  rows.forEach(r => {
+    const cb = r.querySelector('.dir-row-cb');
+    if (cb?.dataset.key === key) {
+      cb.checked = _dirSelected.has(key);
+      r.classList.toggle('sel', _dirSelected.has(key));
+    }
+  });
+};
+
+function _updateSelCount() {
+  document.getElementById('dirSelCount').textContent = `${_dirSelected.size} обрано`;
+}
+
+window.dirSelectAll = function() {
+  const filter = (document.getElementById('dirFilter')?.value || '').toLowerCase();
+  Object.entries(FOODS).forEach(([key, val]) => {
+    const name = (val.name || key).toLowerCase();
+    if (!filter || name.includes(filter)) _dirSelected.add(key);
+  });
+  _updateSelCount();
+  renderFoodsDir();
+};
+
+window.dirDeselectAll = function() {
+  _dirSelected.clear();
+  _updateSelCount();
+  renderFoodsDir();
+};
+
+window.deleteSelected = function() {
+  if (!_dirSelected.size) { showToast('Нічого не обрано'); return; }
+  if (!confirm(`Видалити ${_dirSelected.size} продуктів з довідника?`)) return;
+  const batch = [];
+  _dirSelected.forEach(key => {
+    delete FOODS[key];
+    if (db) batch.push(set(ref(db, 'racion/foods/' + key), null).catch(() => {}));
+  });
+  Promise.all(batch);
+  _dirSelected.clear();
+  _updateSelCount();
+  renderFoodsDir();
+  showToast(`Видалено ✓`);
+};
+
+window.openDirItem = function(key) {
+  // Open product card directly
+  openPCard(key);
+};
+
+// ─── PRODUCT CARD ────────────────────────────────────────────────────────
+let _pcardKey = null;
+
+window.openPCard = function(key) {
+  const food = FOODS[key];
+  if (!food) return;
+  _pcardKey = key;
+
+  // Image — silpoIcon is just the filename (UUID.png), need to build full URL
+  const imgWrap = document.getElementById('pcardImgWrap');
+  const imgUrl = food.silpoIcon ? `https://images.silpo.ua/products/350x350/${food.silpoIcon}` : null;
+  if (imgUrl) {
+    imgWrap.innerHTML = `<img class="pcard-img" src="${imgUrl}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" alt=""><div class="pcard-img-none" style="display:none">🛒</div>`;
+  } else {
+    imgWrap.innerHTML = `<div class="pcard-img-none">🛒</div>`;
+  }
+
+  const alias = food.name || key.replace(/_/g,' ');
+  document.getElementById('pcardAlias').textContent = alias;
+  const stitle = (food.silpoTitle && food.silpoTitle !== food.name) ? food.silpoTitle : '';
+  document.getElementById('pcardStitle').textContent = stitle;
+  document.getElementById('pcardStitle').style.display = stitle ? '' : 'none';
+  document.getElementById('pcardKcal').textContent = food.kcal != null ? Math.round(food.kcal) : '—';
+  document.getElementById('pcardProt').textContent = food.protein != null ? +(food.protein).toFixed(1) : '—';
+  document.getElementById('pcardFat').textContent  = food.fat     != null ? +(food.fat).toFixed(1)     : '—';
+  document.getElementById('pcardCarb').textContent = food.carbs   != null ? +(food.carbs).toFixed(1)   : '—';
+
+  const priceEl = document.getElementById('pcardPrice');
+  priceEl.textContent = food.silpoPrice ? `${food.silpoPrice} грн/${food.silpoPriceRatio || 'шт'}` : '';
+
+  const srcEl = document.getElementById('pcardSrc');
+  if (food.silpoSlug) {
+    const srcLabel = food.source === 'silpo' ? 'Дані з Сільпо' : 'Відредаговано вручну (Сільпо)';
+    srcEl.innerHTML = `${srcLabel} · <a href="https://silpo.ua/product/${food.silpoSlug}" target="_blank" onclick="event.stopPropagation()">Відкрити ↗</a>`;
+  } else {
+    srcEl.textContent = 'Додано вручну';
+  }
+
+  const actEl = document.getElementById('pcardActions');
+  const openBtn = (food.silpoSlug && food.source === 'silpo')
+    ? `<a class="pcard-open-a" href="https://silpo.ua/product/${food.silpoSlug}" target="_blank" onclick="event.stopPropagation()">Відкрити в Сільпо ↗</a>`
+    : `<div style="flex:1"></div>`;
+  actEl.innerHTML = `${openBtn}
+    <button class="pcard-edit-btn" title="Змінити продукт у Сільпо" onclick="openRemap('${key}')">🔗</button>
+    <button class="pcard-edit-btn" title="Редагувати КБЖУ" onclick="closePCard();showScreen('search');showFdTab('dir');startEditFood('${key}')">✏️</button>
+    <button class="pcard-del-btn" title="Видалити" onclick="if(confirm('Видалити?')){deleteFoodItem('${key}');closePCard();}">🗑</button>`;
+
+  document.getElementById('pcardModal').classList.add('on');
+};
+
+window.closePCard = function() {
+  document.getElementById('pcardModal').classList.remove('on');
+  _pcardKey = null;
+};
+
+// ─── MANUAL REMAP: pick a different Silpo product for a directory entry ──
+window.openRemap = function(key) {
+  _remapKey = key;
+  _msCtx = null;
+  const food = FOODS[key];
+  document.getElementById('msInp').value = food?.name || '';
+  document.getElementById('msRes').innerHTML = `<div style="text-align:center;padding:20px;color:var(--muted);font-size:12px">Введи назву і натисни Шукати,<br>щоб обрати інший продукт з Сільпо</div>`;
+  document.getElementById('msearch').classList.add('on');
+  setTimeout(() => { const i = document.getElementById('msInp'); i.focus(); i.select(); }, 120);
+};
+
+window.applyRemap = async function(idx) {
+  const key = _remapKey;
+  if (!key) return;
+  const p = _msFoods[idx];
+  const res = document.getElementById('msRes');
+  const el = res.querySelectorAll('.msd-item')[idx];
+  if (el) {
+    const mac = el.querySelector('.msd-imac');
+    if (mac) mac.innerHTML = '<span style="color:var(--accent)">Завантажуємо КБЖУ...</span>';
+  }
+  let nutr = null;
+  try {
+    const r = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products/${p.slug}`, { headers: { accept: 'application/json' } });
+    const detail = await r.json();
+    nutr = parseSilpoNutr(detail.attributeGroups);
+  } catch(e) {}
+  // If any nutrient is missing in the new Silpo product → reset all to 0.
+  // Link stays bound regardless (user explicitly chose this product).
+  const hasFullNutr = nutr && nutr.kcal != null && nutr.protein != null && nutr.fat != null && nutr.carbs != null;
+  const old = FOODS[key] || {};
+  FOODS[key] = {
+    name: old.name || p.title,
+    silpoTitle: p.title,
+    silpoSlug: p.slug,
+    silpoIcon: p.icon || null,
+    silpoPrice: p.displayPrice ?? null,
+    silpoPriceRatio: p.displayRatio ?? null,
+    source: 'silpo',
+    kcal:    hasFullNutr ? nutr.kcal    : 0,
+    protein: hasFullNutr ? nutr.protein : 0,
+    fat:     hasFullNutr ? nutr.fat     : 0,
+    carbs:   hasFullNutr ? nutr.carbs   : 0,
+  };
+  if (db) set(ref(db, 'racion/foods/' + key), FOODS[key]).catch(() => {});
+  _remapKey = null;
+  closeMSearch();
+  renderFoodsDir();
+  showToast('Оновлено ✓');
+  // Re-open the card with new data
+  setTimeout(() => openPCard(key), 180);
+};
+
+// ─── FORCE RE-FETCH: refresh all directory entries from Silpo ────────────
+// Re-fetches КБЖУ, price, icon, slug for every product in FOODS using
+// the new category-aware matcher. Skips manually edited entries.
+window.refetchAllFoods = async function() {
+  const keys = Object.keys(FOODS).filter(k => FOODS[k].source !== 'manual');
+  if (!keys.length) { showToast('Немає продуктів для оновлення'); return; }
+  if (!confirm(`Заново завантажити ${keys.length} продуктів з Сільпо?\n\nОновляться: КБЖУ, ціни, фото, назви.\nЗаписи відредаговані вручну не зміняться.`)) return;
+  const overlay = document.getElementById('progOverlay');
+  const bar     = document.getElementById('progBar');
+  const title   = document.getElementById('progTitle');
+  const sub     = document.getElementById('progSub');
+  overlay.classList.add('on');
+  bar.style.width = '0%';
+  let done = 0, ok = 0;
+  for (const key of keys) {
+    const food = FOODS[key];
+    const name = food.name || key;
+    title.textContent = 'Оновлюємо з Сільпо...';
+    sub.textContent = name;
+    bar.style.width = `${Math.round(done / keys.length * 100)}%`;
+    try {
+      let items = [];
+      for (const query of [name, name.split(' ')[0]]) {
+        const sr = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products?limit=20&search=${encodeURIComponent(query)}`, { headers: { accept: 'application/json' } });
+        const sd = await sr.json();
+        items = sd.items || [];
+        if (items.length) break;
+      }
+      const best = pickBestSilpo(items, name);
+      if (best) {
+        const dr = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products/${best.slug}`, { headers: { accept: 'application/json' } });
+        const detail = await dr.json();
+        const nutr = parseSilpoNutr(detail.attributeGroups);
+        if (nutr) {
+          FOODS[key] = {
+            name,
+            silpoTitle: best.title,
+            silpoSlug: best.slug,
+            silpoIcon: best.icon || null,
+            silpoPrice: best.displayPrice ?? null,
+            silpoPriceRatio: best.displayRatio ?? null,
+            source: 'silpo',
+            ...nutr,
+          };
+          if (db) set(ref(db, 'racion/foods/' + key), FOODS[key]).catch(() => {});
+          ok++;
+        }
+      }
+    } catch(e) {}
+    done++;
+  }
+  bar.style.width = '100%';
+  title.textContent = '✓ Готово!';
+  sub.textContent = `Оновлено ${ok} з ${keys.length}`;
+  renderFoodsDir();
+  setTimeout(() => overlay.classList.remove('on'), 1800);
+};
+
+function getItemSourceLink(it) {
+  // Direct silpoSlug on item → link to Silpo
+  if (it.silpoSlug) {
+    return `<a class="item-src-a" href="https://silpo.ua/product/${it.silpoSlug}" target="_blank" title="Відкрити в Сільпо">↗</a>`;
+  }
+  // Check FOODS directory
+  const key = foodKey(it.n || '');
+  const food = FOODS[key];
+  if (food?.silpoSlug && food.source === 'silpo') {
+    return `<a class="item-src-a" href="https://silpo.ua/product/${food.silpoSlug}" target="_blank" title="Відкрити в Сільпо">↗</a>`;
+  }
+  if (food) {
+    return `<span class="item-src-dir" onclick="openDirItem('${key}')" title="Відкрити в Довіднику">📚</span>`;
+  }
+  return '';
+}
+
+window.saveFoodItem = function(originalKey) {
+  const name   = document.getElementById('de_name')?.value.trim();
+  if (!name) { showToast('Введи назву продукту'); return; }
+  const kcal   = parseFloat(document.getElementById('de_kcal')?.value) || 0;
+  const protein= parseFloat(document.getElementById('de_prot')?.value) || 0;
+  const fat    = parseFloat(document.getElementById('de_fat')?.value)  || 0;
+  const carbs  = parseFloat(document.getElementById('de_carb')?.value) || 0;
+  const newKey = foodKey(name);
+  // Delete old key if name changed
+  if (originalKey !== '__new__' && newKey !== originalKey) {
+    delete FOODS[originalKey];
+    if (db) set(ref(db, 'racion/foods/' + originalKey), null).catch(() => {});
+  }
+  // Manual edit fully detaches Silpo binding — link becomes inactive
+  FOODS[newKey] = {
+    name, kcal, protein, fat, carbs,
+    source: 'manual',
+  };
+  if (db) set(ref(db, 'racion/foods/' + newKey), FOODS[newKey]).catch(() => {});
+  _editingFoodKey = null;
+  renderFoodsDir();
+  showToast('Збережено ✓');
+};
+
+window.deleteFoodItem = function(key) {
+  const name = FOODS[key]?.name || key.replace(/_/g,' ');
+  if (!confirm(`Видалити "${name}" з довідника?`)) return;
+  delete FOODS[key];
+  if (db) set(ref(db, 'racion/foods/' + key), null).catch(() => {});
+  renderFoodsDir();
+  showToast('Видалено');
+};
+
+window.startAddFood = function() {
+  _editingFoodKey = '__new__';
+  const list = document.getElementById('dirList');
+  const div = document.createElement('div');
+  div.id = 'dir-add-row';
+  div.innerHTML = `<div class="dir-edit-row">
+    <input class="dir-edit-name" id="de_name" placeholder="Назва продукту">
+    <div class="dir-edit-grid">
+      <div class="dir-edit-cell"><input class="dir-edit-inp" id="de_kcal" type="number" placeholder="0"><div class="dir-edit-lbl">Ккал</div></div>
+      <div class="dir-edit-cell"><input class="dir-edit-inp" id="de_prot" type="number" step="0.1" placeholder="0"><div class="dir-edit-lbl">Білок г</div></div>
+      <div class="dir-edit-cell"><input class="dir-edit-inp" id="de_fat"  type="number" step="0.1" placeholder="0"><div class="dir-edit-lbl">Жири г</div></div>
+      <div class="dir-edit-cell"><input class="dir-edit-inp" id="de_carb" type="number" step="0.1" placeholder="0"><div class="dir-edit-lbl">Вуглев г</div></div>
+    </div>
+    <div class="dir-edit-btns">
+      <button class="dir-save-btn" onclick="saveFoodItem('__new__')">Зберегти</button>
+      <button class="dir-cancel-btn" onclick="cancelEditFood()">Скасувати</button>
+    </div>
+  </div>`;
+  list.insertBefore(div, list.firstChild);
+  setTimeout(() => document.getElementById('de_name')?.focus(), 50);
+};
+
+// ═══════════════════════════════
+// AUTO-FILL FROM SILPO
+// ═══════════════════════════════
+
+window.confirmAutoFill = function() {
+  const choice = confirm(
+    '🤖 Автоплан\n\n' +
+    'OK → Скласти НОВИЙ тижневий план і завантажити КБЖУ з Сільпо\n' +
+    'Скасувати → Тільки оновити КБЖУ для наявних продуктів'
+  );
+  autoFillWeek(choice);
+};
+
+// Score how well a Silpo product matches a query (lower = better).
+// Honors category whitelist if provided. Returns 99999 if rejected.
+function silpoMatchScore(query, item, allowedCats) {
+  const q = (query||'').toLowerCase().trim();
+  const t = (item.title||'').toLowerCase().trim();
+  const slug = (item.sectionSlug||'').toLowerCase();
+  if (allowedCats && allowedCats.length) {
+    const ok = allowedCats.some(c => slug.includes(c));
+    if (!ok) return 99999;
+  }
+  if (!q || !t) return 9999;
+  const lenPenalty = t.length * 0.01;
+  if (t === q) return 0;
+  const firstWord = t.split(/[\s,«(]/)[0];
+  if (firstWord === q) return 1 + lenPenalty;
+  // Title starts with query as substring (e.g. "Бананові" for "Банан") — worse
+  if (t.startsWith(q)) return 5 + lenPenalty;
+  // Query as a whole word somewhere
+  const escQ = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (new RegExp(`(^|[\\s,«(\\-])${escQ}([\\s,»)\\-]|$)`).test(t)) return 10 + lenPenalty;
+  const idx = t.indexOf(q);
+  if (idx === -1) return 9999;
+  return 50 + idx + lenPenalty;
+}
+
+function pickBestSilpo(items, name) {
+  if (!items || !items.length) return null;
+  const allowedCats = FOOD_CATEGORIES[name] || null;
+  let best = null, bestScore = 99999;
+  for (const it of items) {
+    const s = silpoMatchScore(name, it, allowedCats);
+    if (s < bestScore) { bestScore = s; best = it; }
+  }
+  if (bestScore >= 9999) return null;
+  return best;
+}
+
+function applyPlanTemplate() {
+  for (const p of ['you', 'her']) {
+    for (const d of [0,1,2,3,4,5,6]) {
+      if (!PLAN_TEMPLATE[p]?.[d]) continue;
+      if (!MENU[p]) MENU[p] = {};
+      MENU[p][d] = JSON.parse(JSON.stringify(PLAN_TEMPLATE[p][d]));
+    }
+  }
+}
+
+async function autoFillWeek(applyTemplate = false) {
+  const overlay = document.getElementById('progOverlay');
+  const bar     = document.getElementById('progBar');
+  const title   = document.getElementById('progTitle');
+  const sub     = document.getElementById('progSub');
+  overlay.classList.add('on');
+  bar.style.width = '0%';
+
+  if (applyTemplate) {
+    title.textContent = 'Складаємо план...';
+    sub.textContent = 'Застосовуємо тижневий раціон';
+    applyPlanTemplate();
+    renderMeals();
+    renderTotals();
+  }
+
+  // Collect all items that need lookup (no kcal_per_100 yet)
+  const tasks = [];
+  for (const p of ['you', 'her']) {
+    for (let d = 0; d <= 6; d++) {
+      const dayData = MENU[p]?.[d];
+      if (!dayData) continue;
+      for (const mk of ['breakfast','snack1','lunch','snack2','dinner']) {
+        const meal = dayData[mk];
+        if (!meal?.items) continue;
+        meal.items.forEach((it, i) => {
+          if (it.n && it.kcal_per_100 == null) tasks.push({ p, d, mk, i, name: it.n });
+        });
+      }
+    }
+  }
+
+  // Deduplicate by name
+  const uniqueNames = [...new Set(tasks.map(t => t.name))];
+  const resolved = {};
+  let done = 0;
+
+  for (const name of uniqueNames) {
+    title.textContent = 'Шукаємо в Сільпо...';
+    sub.textContent = name;
+    bar.style.width = `${Math.round(done / uniqueNames.length * 100)}%`;
+
+    // Check FOODS cache first
+    const cKey = foodKey(name);
+    if (FOODS[cKey]) { resolved[name] = FOODS[cKey]; done++; continue; }
+
+    try {
+      // Search Silpo with wider limit, then pick best by category-aware score
+      let items = [];
+      for (const query of [name, name.split(' ')[0]]) {
+        const sr = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products?limit=20&search=${encodeURIComponent(query)}`, { headers: { accept: 'application/json' } });
+        const sd = await sr.json();
+        items = sd.items || [];
+        if (items.length) break;
+      }
+      const best = pickBestSilpo(items, name);
+      if (!best) { done++; continue; }
+
+      // Fetch detail for nutrition
+      const dr = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products/${best.slug}`, { headers: { accept: 'application/json' } });
+      const detail = await dr.json();
+      const nutr = parseSilpoNutr(detail.attributeGroups);
+
+      if (nutr) {
+        const entry = { ...nutr, silpoId: best.id, silpoSlug: best.slug, silpoTitle: best.title, silpoIcon: best.icon || null, silpoPrice: best.displayPrice, silpoPriceRatio: best.displayRatio };
+        resolved[name] = entry;
+        FOODS[cKey] = { name, silpoTitle: best.title, silpoSlug: best.slug, silpoIcon: best.icon || null, silpoPrice: best.displayPrice, silpoPriceRatio: best.displayRatio, source: 'silpo', ...nutr };
+        if (db) set(ref(db, 'racion/foods/' + cKey), FOODS[cKey]).catch(() => {});
+      }
+    } catch(e) {}
+    done++;
+  }
+
+  // Apply to all menu items
+  for (const task of tasks) {
+    const nutr = resolved[task.name];
+    if (!nutr) continue;
+    const item = MENU[task.p][task.d][task.mk].items[task.i];
+    item.kcal_per_100    = nutr.kcal;
+    item.protein_per_100 = nutr.protein;
+    item.fat_per_100     = nutr.fat;
+    item.carbs_per_100   = nutr.carbs;
+    if (nutr.silpoId)    { item.silpoId = nutr.silpoId; item.silpoSlug = nutr.silpoSlug; item.silpoPrice = nutr.silpoPrice; item.silpoPriceRatio = nutr.silpoPriceRatio; }
+  }
+
+  // Save
+  bar.style.width = '100%';
+  title.textContent = '✓ Готово!';
+  sub.textContent = `Завантажено дані для ${Object.keys(resolved).length} з ${uniqueNames.length} продуктів`;
+  if (db) set(ref(db, 'racion/menu'), MENU).then(() => setSyncStatus('ok', 'Збережено ✓')).catch(() => {});
+  renderMeals();
+  renderTotals();
+  renderFoodsDir();
+  setTimeout(() => overlay.classList.remove('on'), 2000);
+}
+
+// ═══════════════════════════════
+// SHOPPING LIST / CART
+// ═══════════════════════════════
+
+function buildShoppingList() {
+  const map = {};
+  for (const p of ['you', 'her']) {
+    for (let d = 0; d <= 6; d++) {
+      const dayData = MENU[p]?.[d];
+      if (!dayData) continue;
+      for (const mk of ['breakfast','snack1','lunch','snack2','dinner']) {
+        const meal = dayData[mk];
+        if (!meal?.items) continue;
+        for (const it of meal.items) {
+          if (!it.n) continue;
+          const key = it.silpoSlug || it.n.toLowerCase().trim();
+          const g = parseG(it.g);
+          if (!map[key]) {
+            map[key] = { name: it.n, silpoSlug: it.silpoSlug || null, silpoId: it.silpoId || null, price: it.silpoPrice || null, priceRatio: it.silpoPriceRatio || 'шт', totalG: 0, days: 0 };
+          }
+          map[key].totalG += g;
+          map[key].days++;
+        }
+      }
+    }
+  }
+  return Object.values(map).sort((a, b) => a.name.localeCompare(b.name, 'uk'));
+}
+
+window.showShoppingList = function() {
+  const list = buildShoppingList();
+  const body = document.getElementById('cartBody');
+  const sub  = document.getElementById('cartSub');
+  const withSilpo = list.filter(i => i.silpoSlug).length;
+  sub.textContent = `${list.length} продуктів • ${withSilpo} є в Сільпо`;
+
+  if (!list.length) {
+    body.innerHTML = `<div style="text-align:center;padding:30px;color:var(--muted);font-size:13px">Немає продуктів у раціоні.<br>Натисни 🤖 щоб заповнити з Сільпо.</div>`;
+  } else {
+    body.innerHTML = list.map(item => {
+      const gText = item.totalG > 0 ? `${item.totalG}г на тиждень` : `${item.days} разів`;
+      const priceText = item.price ? ` · ${item.price} грн/${item.priceRatio}` : '';
+      const btn = item.silpoSlug
+        ? `<a class="cart-ibtn" href="https://silpo.ua/product/${item.silpoSlug}" target="_blank">Відкрити ↗</a>`
+        : `<span style="font-size:11px;color:var(--muted)">Немає в Сільпо</span>`;
+      return `<div class="cart-item">
+        <div class="cart-iinfo">
+          <div class="cart-iname">${item.name}</div>
+          <div class="cart-ig">${gText}${priceText}</div>
+        </div>
+        ${btn}
+      </div>`;
+    }).join('');
+  }
+  document.getElementById('cartModal').classList.add('on');
+};
+
+window.closeCartModal = function() {
+  document.getElementById('cartModal').classList.remove('on');
+};
+
+window.openAllInSilpo = function() {
+  const list = buildShoppingList().filter(i => i.silpoSlug);
+  if (!list.length) { showToast('Немає продуктів з Сільпо в раціоні'); return; }
+  // Open first 5 in new tabs (browsers block mass tab opening after 1)
+  list.slice(0, 1).forEach(item => {
+    window.open(`https://silpo.ua/product/${item.silpoSlug}`, '_blank');
+  });
+  showToast(`Відкрито Сільпо. Решту ${list.length - 1} — натискай "Відкрити ↗" по одному`);
+};
+
+// ═══════════════════════════════
+// DIARY
+// ═══════════════════════════════
+window.calMove = function (d) {
+  if (calView === "month") {
+    calM += d;
+    if (calM > 11) {
+      calM = 0;
+      calY++;
+    }
+    if (calM < 0) {
+      calM = 11;
+      calY--;
+    }
+  } else {
+    const r = selDate || new Date();
+    r.setDate(r.getDate() + d * 7);
+    selDate = new Date(r);
+    calY = selDate.getFullYear();
+    calM = selDate.getMonth();
+  }
+  renderCal();
+};
+window.setCalView = function (v) {
+  calView = v;
+  document
+    .getElementById("vt-month")
+    .classList.toggle("active", v === "month");
+  document
+    .getElementById("vt-week")
+    .classList.toggle("active", v === "week");
+  renderCal();
+};
+
+function renderCal() {
+  document.getElementById("calMonth").textContent =
+    `${MONTHS[calM]} ${calY}`;
+  calView === "month" ? renderMonth() : renderWeek();
+}
+
+function renderMonth() {
+  const body = document.getElementById("calBody");
+  const today = new Date(),
+    first = new Date(calY, calM, 1),
+    last = new Date(calY, calM + 1, 0);
+  const off = (first.getDay() + 6) % 7;
+  const prevLast = new Date(calY, calM, 0).getDate();
+  let html = `<div class="cal-grid">`;
+  ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"].forEach(
+    (d) => (html += `<div class="cal-dow">${d}</div>`),
+  );
+  for (let i = off - 1; i >= 0; i--)
+    html += `<div class="cal-cell other"><span class="cn">${prevLast - i}</span><span class="cdot"></span></div>`;
+  for (let d = 1; d <= last.getDate(); d++) {
+    const dt = new Date(calY, calM, d),
+      key = dateKey(dt);
+    const isToday = dateKey(today) === key,
+      hasl = !!DIARY[key],
+      isSel = selDate && dateKey(selDate) === key;
+    let cls = "cal-cell";
+    if (isSel) cls += " sel";
+    else if (isToday) cls += " tod";
+    if (hasl && !isSel) cls += " has-log";
+    html += `<div class="${cls}" onclick="selectDate('${key}')"><span class="cn">${d}</span><span class="cdot"></span></div>`;
+  }
+  html += `</div>`;
+  if (selDate) {
+    const key = dateKey(selDate),
+      log = DIARY[key];
+    const ds = selDate.toLocaleDateString("uk-UA", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+    });
+    html += `<div class="day-log"><div class="dl-date">${cap(ds)}</div>`;
+    if (log) {
+      html += `<div class="dl-sub">Зафіксований раціон</div>`;
+      ["you", "her"].forEach((p) => {
+        const pd = log[p],
+          pname = p === "you" ? "Ти" : "Вона",
+          pc = p === "you" ? "var(--you)" : "var(--her)";
+        let mh = "";
+        META.forEach((m) => {
+          const ml = pd[m.key];
+          if (ml && ml.items && ml.items.length)
+            mh += `<div class="lpb-meal"><div class="lpb-mn">${m.ico} ${m.name}</div><div class="lpb-items">${ml.items.map((it) => it.n + (it.g ? " (" + it.g + ")" : "")).join(", ")}</div></div>`;
+        });
+        html += `<div class="lpb"><div class="lpb-hdr"><div class="lpb-dot" style="background:${pc}"></div><div class="lpb-name" style="color:${pc}">${pname}</div><div class="lpb-kc" style="color:${pc}">${pd.totals.kcal} ккал</div></div><div class="lpb-meals">${mh}</div></div>`;
+      });
+    } else {
+      html += `<div class="log-empty"><div class="lei">📭</div><p>Немає записів за цей день</p></div>`;
+    }
+    html += `</div>`;
+  }
+  body.innerHTML = html;
+}
+
+function renderWeek() {
+  const ref2 = selDate || new Date(),
+    dow = ref2.getDay(),
+    mon = new Date(ref2);
+  mon.setDate(ref2.getDate() - ((dow + 6) % 7));
+  let html = `<div class="week-view">`;
+  for (let i = 0; i < 7; i++) {
+    const dt = new Date(mon);
+    dt.setDate(mon.getDate() + i);
+    const key = dateKey(dt),
+      log = DIARY[key],
+      dname = DAYS[dt.getDay()];
+    const ds = dt.toLocaleDateString("uk-UA", {
+      day: "numeric",
+      month: "short",
+    });
+    const isToday = dateKey(new Date()) === key;
+    html += `<div class="wr" onclick="selectDate('${key}');setCalView('month')">
+<div><div class="wr-day">${dname}${isToday ? " 🟢" : ""}</div><div class="wr-date">${ds}</div></div>
+<div class="wr-r">`;
+    if (log) {
+      html += `<div class="wrbadge y">${log.you.totals.kcal} ккал</div><div class="wrbadge h">${log.her.totals.kcal} ккал</div>`;
+    } else html += `<div class="wrbadge e">Немає даних</div>`;
+    html += `</div></div>`;
+  }
+  html += `</div>`;
+  document.getElementById("calBody").innerHTML = html;
+}
+
+window.selectDate = function (key) {
+  selDate = keyToDate(key);
+  calY = selDate.getFullYear();
+  calM = selDate.getMonth();
+  renderCal();
+};
+function cap(s) {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+// ═══════════════════════════════
+// FOOD SEARCH (Silpo)
+// ═══════════════════════════════
+window.doSearch = async function () {
+  const q = document.getElementById("searchInp").value.trim();
+  if (!q) return;
+  await searchFood(q);
+};
+window.qs = function (q) {
+  document.getElementById("searchInp").value = q;
+  searchFood(q);
+};
+
+async function searchFood(q) {
+  const btn = document.getElementById("searchBtn"),
+    cont = document.getElementById("searchContent");
+  btn.disabled = true;
+  cont.innerHTML = `<div class="sl"><div class="spin" style="margin:0 auto 8px"></div><br>Шукаємо в Сільпо «${q}»...</div>`;
+  try {
+    const res = await fetch(
+      `${SILPO_API}/${SILPO_BRANCH}/products?limit=15&search=${encodeURIComponent(q)}`,
+      { headers: { accept: "application/json" } }
+    );
+    const data = await res.json();
+    const ql = q.toLowerCase();
+    const prods = (data.items || []).sort((a, b) => {
+      const ai = a.title.toLowerCase().indexOf(ql);
+      const bi = b.title.toLowerCase().indexOf(ql);
+      return (ai === -1 ? 9999 : ai) - (bi === -1 ? 9999 : bi);
+    });
+    if (!prods.length) {
+      cont.innerHTML = `<div class="sl">😔 Нічого не знайдено в Сільпо.</div>`;
+      btn.disabled = false;
+      return;
+    }
+    let html = "";
+    prods.forEach((p, i) => {
+      const price = p.displayPrice ? `${p.displayPrice} грн/${p.displayRatio || "шт"}` : "";
+      html += `<div class="fc" onclick="showFood(${i})">
+  <div class="fc-name">${p.title}</div>
+  ${p.brandTitle ? `<div class="fc-brand">${p.brandTitle} · ${price}</div>` : `<div class="fc-brand">${price}</div>`}
+  <div class="fc-macros" id="fcm_${i}">
+    <div class="fc-m" style="grid-column:1/-1;text-align:left"><span class="fc-mv" style="font-size:10px;color:var(--muted)">Натисни щоб побачити КБЖУ</span></div>
+  </div></div>`;
+    });
+    cont.innerHTML = html;
+    window._fr = prods;
+  } catch (e) {
+    cont.innerHTML = `<div class="sl">⚠️ Немає інтернету або помилка сервера</div>`;
+  }
+  btn.disabled = false;
+}
+
+window.showFood = async function (i) {
+  const p = window._fr[i];
+  // Show modal immediately with loading state
+  document.getElementById("mTitle").textContent = p.title;
+  document.getElementById("mBrand").textContent = p.brandTitle || "";
+  document.getElementById("mKcal").textContent = "...";
+  document.getElementById("mProt").textContent = "...";
+  document.getElementById("mFat").textContent = "...";
+  document.getElementById("mCarb").textContent = "...";
+  document.getElementById("mo").classList.add("on");
+  // Fetch details
+  try {
+    const r = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products/${p.slug}`, {
+      headers: { accept: "application/json" }
+    });
+    const detail = await r.json();
+    const nutr = parseSilpoNutr(detail.attributeGroups);
+    document.getElementById("mKcal").textContent = nutr?.kcal != null ? nutr.kcal + " ккал" : "—";
+    document.getElementById("mProt").textContent = nutr?.protein != null ? nutr.protein + "г" : "—";
+    document.getElementById("mFat").textContent = nutr?.fat != null ? nutr.fat + "г" : "—";
+    document.getElementById("mCarb").textContent = nutr?.carbs != null ? nutr.carbs + "г" : "—";
+    // Also update the card in list
+    const fcm = document.getElementById("fcm_" + i);
+    if (fcm && nutr) {
+      fcm.innerHTML = `
+        <div class="fc-m"><span class="fc-mv">${nutr.kcal}</span><span class="fc-ml">ккал</span></div>
+        <div class="fc-m"><span class="fc-mv">${nutr.protein ?? "—"}г</span><span class="fc-ml">білок</span></div>
+        <div class="fc-m"><span class="fc-mv">${nutr.fat ?? "—"}г</span><span class="fc-ml">жири</span></div>
+        <div class="fc-m"><span class="fc-mv">${nutr.carbs ?? "—"}г</span><span class="fc-ml">вуглев.</span></div>`;
+    }
+  } catch(e) {
+    document.getElementById("mKcal").textContent = "—";
+  }
+};
+window.closeMo = () =>
+  document.getElementById("mo").classList.remove("on");
+
+// ═══════════════════════════════
+// TOAST
+// ═══════════════════════════════
+window.showToast = function (msg, type) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.className = "toast" + (type === "err" ? " err" : "") + " on";
+  setTimeout(() => t.classList.remove("on"), 2600);
+};
