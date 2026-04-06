@@ -2948,6 +2948,10 @@ const CATEGORY_TO_MEAL_TYPES = {
   'Закуски':         ['snack'],
   'Холодні закуски': ['snack'],
   'Гарячі закуски':  ['snack', 'lunch'],
+  // No own bucket but contribute to breakfast — sweet/baked dishes are
+  // typical morning fare (сирники, оладки, панкейки, гранола, etc).
+  'Солодкі страви':  ['breakfast'],
+  'Випічка':         ['breakfast'],
 };
 
 // Optional display icon per category name. Unknown names get '🍳'.
@@ -3058,6 +3062,10 @@ async function doBulkImportKlopotenko() {
       // Don't overwrite existing entries (manual edits, etc)
       if (FOODS[key]) { skipped++; continue; }
       const tags = inferMealTagsFromCategory(rec.category, rec.name);
+      // Prefer the pre-computed mealTypes from recipes.json (classifier
+      // ran during build time and stored breakfast/lunch/dinner/snack tags
+      // per recipe). Fall back to legacy tag inference for entries without it.
+      const mealTags = (rec.mealTypes && rec.mealTypes.length) ? rec.mealTypes : tags;
       const food = {
         name: rec.name,
         type: 'recipe',
@@ -3072,8 +3080,11 @@ async function doBulkImportKlopotenko() {
         sourceUrl: rec.sourceUrl,
         sourceImage: rec.sourceImage || null,
         source: 'klopotenko',
-        tags,
+        tags: mealTags,
       };
+      // Skip recipes that didn't classify into any meal type — they're
+      // typically jams/preserves that we don't want in the planner anyway
+      if (!mealTags.length) { skipped++; continue; }
       FOODS[key] = food;
       batch['racion/foods/' + key] = food;
       added++;
@@ -3196,45 +3207,30 @@ ${ingList}
 let _expandedRecipeCats = new Set();
 let _recipeBuckets = [];  // populated by renderRecipesView; handlers index into this
 
-// Group recipes into meal-type buckets (Сніданок/Обід/Вечеря/Перекус) by
-// resolving each recipe's klopotenko category through CATEGORY_TO_MEAL_TYPES.
-// A recipe in 'Другі страви, М'ясні' lands in both lunch AND dinner so users
-// can discover it from either context. Dedupe per bucket via _seen Set.
+// Group recipes into meal-type buckets (Сніданок/Обід/Вечеря/Перекус)
+// directly via food.tags — those tags were assigned per-recipe by the
+// pre-build classifier (classify_recipes.py) and stored in recipes.json,
+// then written to FOODS.tags during bulk import. No category mapping
+// needed at runtime — every recipe carries its own meal-type assignment.
 function groupRecipesByCategory() {
   const buckets = MEAL_TYPE_BUCKETS.map(b => ({
     name: b.label,
     type: b.type,
     icon: b.icon,
     recipes: [],
-    _seen: new Set(),
   }));
   const byType = Object.fromEntries(buckets.map(b => [b.type, b]));
-  const addTo = (bucket, key, food) => {
-    if (!bucket || bucket._seen.has(key)) return;
-    bucket._seen.add(key);
-    bucket.recipes.push({ key, food });
-  };
 
   for (const [key, food] of Object.entries(FOODS)) {
     if (!food || food.type !== 'recipe') continue;
-
-    // Synthetic breakfast match — no klopotenko category for this; we use
-    // explicit tag OR name keywords (сніданок / каша)
-    if ((food.tags || []).includes('breakfast') || /снідан|каш/i.test(food.name)) {
-      addTo(byType.breakfast, key, food);
-    }
-
-    // Each comma-separated klopotenko category mapped to one or more meal types
-    const cats = (food.category || '').split(',').map(s => s.trim()).filter(Boolean);
-    for (const cat of cats) {
-      if (SKIP_BUCKET_NAMES.has(cat)) continue;
-      const types = CATEGORY_TO_MEAL_TYPES[cat];
-      if (!types) continue;
-      for (const t of types) addTo(byType[t], key, food);
+    const tags = food.tags || [];
+    if (!tags.length) continue;
+    for (const t of tags) {
+      const bucket = byType[t];
+      if (bucket) bucket.recipes.push({ key, food });
     }
   }
 
-  buckets.forEach(b => delete b._seen);
   return buckets.filter(b => b.recipes.length);
 }
 
