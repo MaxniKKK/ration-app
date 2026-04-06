@@ -6,6 +6,7 @@ import {
   get,
   onValue,
   child,
+  update,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
 // ═══════════════════════════════
@@ -2895,6 +2896,243 @@ async function fetchNutritionFromAI(name) {
   };
   if (!result.kcal) throw new Error('AI не зміг визначити калорійність для "' + name + '"');
   return result;
+}
+
+// ── RECIPE CATEGORIES (visible in the directory grouping) ───────────────
+// key = stable id, label = string that appears IN klopotenko's category field
+// (substring match), icon = visual.
+const RECIPE_CATEGORIES = [
+  { key: 'breakfast', label: 'Сніданок',     icon: '🌅' },  // matched by name heuristic
+  { key: 'pershi',    label: 'Перші страви', icon: '🍲' },
+  { key: 'drugi',     label: 'Другі страви', icon: '🍽️' },
+  { key: 'myasni',    label: 'М\'ясні',      icon: '🥩' },
+  { key: 'rybni',     label: 'Рибне',        icon: '🐟' },
+  { key: 'salaty',    label: 'Салати',       icon: '🥗' },
+  { key: 'garniry',   label: 'Гарніри',      icon: '🍚' },
+  { key: 'ovochevi',  label: 'Овочеві',      icon: '🥦' },
+  { key: 'zakuski',   label: 'Закуски',      icon: '🥙' },
+  { key: 'desserts',  label: 'Десерти',      icon: '🍰' },
+  { key: 'sweets',    label: 'Солодкі страви', icon: '🍮' },
+  { key: 'baking',    label: 'Випічка',      icon: '🥐' },
+  { key: 'drinks',    label: 'Напої',        icon: '🥤' },
+];
+
+// ── KLOPOTENKO CATEGORY → MEAL-TYPE TAG MAPPING ──────────────────────────
+// Maps klopotenko's recipeCategory strings (comma-separated) into our
+// breakfast/lunch/dinner/snack tags. A recipe inherits all matching tags.
+const CATEGORY_TO_MEAL_TAGS = [
+  // [substring in category string, [meal types]]
+  ['снідан',         ['breakfast']],
+  ['каш',            ['breakfast']],            // morning porridges
+  ['перші',          ['lunch']],                // soups
+  ['другі',          ['lunch', 'dinner']],      // main courses
+  ['м\'ясн',         ['lunch', 'dinner']],
+  ['рибн',           ['lunch', 'dinner']],
+  ['овочев',         ['lunch', 'dinner']],
+  ['гарнір',         ['lunch', 'dinner']],
+  ['салат',          ['lunch', 'dinner']],
+  ['пиц',            ['lunch', 'dinner']],
+  ['паст',           ['lunch', 'dinner']],
+  ['десерт',         ['snack']],
+  ['солодк',         ['snack']],
+  ['випічк',         ['snack']],
+  ['закуск',         ['snack']],
+  ['коктейл',        ['snack']],
+  ['напо',           ['snack']],
+];
+
+// Categories we DON'T want to import as recipes (not full meals)
+const SKIP_CATEGORIES = ['Соуси', 'Заготовки', 'Варення', 'Маринади'];
+
+function inferMealTagsFromCategory(category, name) {
+  const c = (category || '').toLowerCase();
+  const n = (name || '').toLowerCase();
+  const tags = new Set();
+  // Name-based hints win first
+  if (/снідан|каша/.test(n)) tags.add('breakfast');
+  for (const [sub, mealTags] of CATEGORY_TO_MEAL_TAGS) {
+    if (c.includes(sub) || n.includes(sub)) {
+      mealTags.forEach(t => tags.add(t));
+    }
+  }
+  return [...tags];
+}
+
+// Bulk import recipes.json (shipped in repo) into FOODS as type='recipe'
+// stubs with kcal=0. Per-category AI nutrition is computed afterwards.
+window.promptBulkImportKlopotenko = function() {
+  showConfirm({
+    icon: '📥',
+    title: 'Імпорт бази рецептів',
+    text: 'Завантажу ~1600 рецептів з klopotenko.com у твій довідник. Це безкоштовно (без AI), КБЖУ можна буде додати потім по категоріях. Записи в Firebase займуть ~2 МБ.',
+    actions: [
+      { label: 'Імпортувати', style: 'primary', onClick: () => doBulkImportKlopotenko() },
+      { label: 'Скасувати', style: 'cancel' },
+    ],
+  });
+};
+
+async function doBulkImportKlopotenko() {
+  const overlay = document.getElementById('progOverlay');
+  const bar     = document.getElementById('progBar');
+  const title   = document.getElementById('progTitle');
+  const sub     = document.getElementById('progSub');
+  overlay.classList.add('on');
+  title.textContent = '📥 Завантажуємо базу рецептів...';
+  sub.textContent = '';
+  bar.style.width = '0%';
+
+  try {
+    const r = await fetch('./recipes.json');
+    if (!r.ok) throw new Error('recipes.json не знайдено в репо (HTTP ' + r.status + ')');
+    const recipes = await r.json();
+
+    title.textContent = '📥 Імпорт у довідник...';
+    sub.textContent = `${recipes.length} рецептів`;
+
+    // Build batch update — much faster than per-item set()
+    const batch = {};
+    let added = 0, skipped = 0;
+    for (const rec of recipes) {
+      if (!rec.name || !rec.ingredients?.length) { skipped++; continue; }
+      // Skip non-meal categories
+      if (rec.category && SKIP_CATEGORIES.some(s => rec.category.includes(s))) { skipped++; continue; }
+      const key = foodKey(rec.name);
+      // Don't overwrite existing entries (manual edits, etc)
+      if (FOODS[key]) { skipped++; continue; }
+      const tags = inferMealTagsFromCategory(rec.category, rec.name);
+      const food = {
+        name: rec.name,
+        type: 'recipe',
+        kcal:    rec.kcal    || 0,
+        protein: rec.protein || 0,
+        fat:     rec.fat     || 0,
+        carbs:   rec.carbs   || 0,
+        ingredients: rec.ingredients,
+        category: rec.category || '',
+        cuisine: rec.cuisine || '',
+        servings: rec.servings || null,
+        sourceUrl: rec.sourceUrl,
+        sourceImage: rec.sourceImage || null,
+        source: 'klopotenko',
+        tags,
+      };
+      FOODS[key] = food;
+      batch['racion/foods/' + key] = food;
+      added++;
+    }
+
+    // Write in chunks of 200 (Firebase update payload limits)
+    if (db) {
+      const keys = Object.keys(batch);
+      for (let i = 0; i < keys.length; i += 200) {
+        const chunk = {};
+        keys.slice(i, i + 200).forEach(k => chunk[k] = batch[k]);
+        await update(ref(db), chunk);
+        bar.style.width = `${Math.round((i + 200) / keys.length * 100)}%`;
+        sub.textContent = `Збережено ${Math.min(i+200, keys.length)} з ${keys.length}`;
+      }
+    }
+
+    bar.style.width = '100%';
+    title.textContent = '✓ Готово!';
+    sub.textContent = `Імпортовано: ${added}. Пропущено: ${skipped}. Тепер можеш додати КБЖУ через AI по категоріях.`;
+    renderFoodsDir();
+    setTimeout(() => overlay.classList.remove('on'), 3500);
+  } catch (e) {
+    overlay.classList.remove('on');
+    showConfirm({
+      icon: '⚠️',
+      title: 'Помилка імпорту',
+      text: e.message || String(e),
+      actions: [{ label: 'Зрозуміло', style: 'primary' }],
+    });
+  }
+}
+
+// Compute nutrition via AI for all recipes in a given category that don't yet
+// have kcal. Cheap with Gemini Flash (free), modest with Claude (~$0.001/recipe).
+window.promptComputeCategoryNutrition = function(catKey) {
+  const cat = RECIPE_CATEGORIES.find(c => c.key === catKey);
+  if (!cat) return;
+  const todo = Object.entries(FOODS).filter(([k, f]) =>
+    f?.type === 'recipe' && (f.category || '').includes(cat.label) && !f.kcal
+  );
+  if (!todo.length) {
+    showToast('У цій категорії немає рецептів без КБЖУ');
+    return;
+  }
+  showConfirm({
+    icon: '🤖',
+    title: `Розрахувати КБЖУ для "${cat.label}"`,
+    text: `${todo.length} рецептів буде відправлено на обраний AI провайдер. Це може зайняти ${Math.ceil(todo.length / 60)} хв (Gemini ~60/хв, Claude швидше). Натисни лише якщо ключ вже налаштовано.`,
+    actions: [
+      { label: 'Запустити', style: 'primary', onClick: () => computeCategoryNutrition(todo) },
+      { label: 'Скасувати', style: 'cancel' },
+    ],
+  });
+};
+
+async function computeCategoryNutrition(entries) {
+  if (!getAIKey()) {
+    showConfirm({
+      icon: '⚠️',
+      title: 'Немає AI ключа',
+      text: 'Зайди в Профіль → AI генератор і додай ключ.',
+      actions: [{ label: 'Зрозуміло', style: 'primary' }],
+    });
+    return;
+  }
+  const overlay = document.getElementById('progOverlay');
+  const bar     = document.getElementById('progBar');
+  const title   = document.getElementById('progTitle');
+  const sub     = document.getElementById('progSub');
+  overlay.classList.add('on');
+  title.textContent = '🤖 AI рахує КБЖУ рецептів';
+  bar.style.width = '0%';
+
+  let done = 0, ok = 0;
+  for (const [key, food] of entries) {
+    sub.textContent = `${done + 1}/${entries.length} · ${food.name.slice(0, 50)}`;
+    bar.style.width = `${Math.round(done / entries.length * 100)}%`;
+    try {
+      const ingList = food.ingredients.join('\n');
+      const prompt = `Розрахуй середню харчову цінність на 100г готової страви "${food.name}".
+
+Інгредієнти:
+${ingList}
+
+Поверни ВИКЛЮЧНО валідний JSON без жодного тексту: {"kcal": число, "protein": число, "fat": число, "carbs": число}
+Усі поля обовʼязкові, числа без одиниць виміру.`;
+      const raw = await callAIProvider(prompt);
+      let t = String(raw).trim();
+      const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (fence) t = fence[1].trim();
+      const first = t.indexOf('{'), last = t.lastIndexOf('}');
+      if (first >= 0 && last > first) t = t.slice(first, last + 1);
+      const data = JSON.parse(t);
+      if (data.kcal) {
+        FOODS[key] = {
+          ...food,
+          kcal:    Number(data.kcal)    || 0,
+          protein: Number(data.protein) || 0,
+          fat:     Number(data.fat)     || 0,
+          carbs:   Number(data.carbs)   || 0,
+        };
+        if (db) set(ref(db, 'racion/foods/' + key), FOODS[key]).catch(() => {});
+        ok++;
+      }
+    } catch (e) {
+      console.warn('[ai-nutr]', food.name, e.message);
+    }
+    done++;
+  }
+
+  bar.style.width = '100%';
+  title.textContent = '✓ Готово!';
+  sub.textContent = `Розраховано ${ok} з ${entries.length}`;
+  renderFoodsDir();
+  setTimeout(() => overlay.classList.remove('on'), 2500);
 }
 
 // ── KLOPOTENKO RECIPE IMPORT ─────────────────────────────────────────────

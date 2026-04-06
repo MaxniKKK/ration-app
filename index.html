@@ -196,7 +196,8 @@
         <div class="dir-bar">
           <input class="dir-filter" id="dirFilter" placeholder="Фільтр..." oninput="renderFoodsDir()">
           <button class="dir-add-btn" onclick="startAddFood()">+ Додати</button>
-          <button class="dir-add-btn" style="background:rgba(255,107,53,.08);color:var(--accent2);border:1.5px solid rgba(255,107,53,.25)" onclick="promptKlopotenkoImport()" title="Імпортувати рецепт з klopotenko.com">🍳 Рецепт</button>
+          <button class="dir-add-btn" style="background:rgba(255,107,53,.08);color:var(--accent2);border:1.5px solid rgba(255,107,53,.25)" onclick="promptBulkImportKlopotenko()" title="Імпортувати базу рецептів klopotenko.com">📥 База</button>
+          <button class="dir-add-btn" style="background:rgba(255,107,53,.08);color:var(--accent2);border:1.5px solid rgba(255,107,53,.25)" onclick="promptKlopotenkoImport()" title="Імпортувати один рецепт з klopotenko.com">🍳</button>
           <button class="dir-add-btn" style="background:var(--card2);color:var(--muted);border:1.5px solid var(--border)" onclick="toggleDirSelectMode()" id="btnDirSel">☑</button>
           <button class="dir-add-btn" style="background:var(--card2);color:var(--muted);border:1.5px solid var(--border)" onclick="refetchAllFoods()" title="Заново завантажити всі продукти з Сільпо">🔄</button>
         </div>
