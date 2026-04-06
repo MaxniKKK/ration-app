@@ -146,22 +146,33 @@ function findInPool(name) {
   return null;
 }
 
-// Ensure FOODS has an entry for `name`. If missing, seed from INGREDIENT_POOL
-// with built-in nutrition. Returns the resulting FOODS entry, or null if
-// the name isn't in the pool either.
+// Ensure FOODS has an entry for `name`. If missing:
+//   - if name is in INGREDIENT_POOL → seed with built-in nutrition
+//   - otherwise → create empty stub with 0 КБЖУ
+// Either way the entry exists afterwards, so enrichFoodsFromSilpo will
+// pick it up and try to fetch real nutrition from Silpo.
 function ensureFoodInDirectory(name) {
   const key = foodKey(name);
   if (FOODS[key]) return FOODS[key];
   const known = findInPool(name);
-  if (!known) return null;
-  FOODS[key] = {
-    name,
-    kcal:    known.k,
-    protein: known.p ?? 0,
-    fat:     known.f ?? 0,
-    carbs:   known.c ?? 0,
-    source: 'auto',
-  };
+  if (known) {
+    FOODS[key] = {
+      name,
+      kcal:    known.k,
+      protein: known.p ?? 0,
+      fat:     known.f ?? 0,
+      carbs:   known.c ?? 0,
+      source: 'auto',
+    };
+  } else {
+    // Unknown ingredient (e.g. user typed it manually). Create empty stub —
+    // enrichFoodsFromSilpo will try to populate КБЖУ from Silpo on next pass.
+    FOODS[key] = {
+      name,
+      kcal: 0, protein: 0, fat: 0, carbs: 0,
+      source: 'auto',
+    };
+  }
   if (db) set(ref(db, 'racion/foods/' + key), FOODS[key]).catch(() => {});
   return FOODS[key];
 }
@@ -1533,10 +1544,23 @@ async function enrichFoodsFromSilpo(progress) {
       const dr = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products/${best.slug}`, { headers: { accept: 'application/json' } });
       const detail = await dr.json();
       const nutr = parseSilpoNutr(detail.attributeGroups);
-      // Only overwrite if Silpo gave us a full set — otherwise the POOL/auto
-      // value is more reliable than partial data
-      const hasFullNutr = nutr && nutr.kcal != null && nutr.protein != null && nutr.fat != null && nutr.carbs != null;
-      if (!hasFullNutr) continue;
+      // Decide whether to overwrite the existing entry:
+      //   - If current entry has no КБЖУ (empty stub from manual add) →
+      //     accept any Silpo data, even partial. Anything is better than 0.
+      //   - If current entry already has POOL data → only overwrite when
+      //     Silpo returned a complete set, otherwise POOL is more reliable.
+      const hasAnyNutr  = nutr && nutr.kcal != null;
+      const hasFullNutr = hasAnyNutr && nutr.protein != null && nutr.fat != null && nutr.carbs != null;
+      const isEmptyStub = !food.kcal;
+      if (!hasAnyNutr) continue;
+      if (!isEmptyStub && !hasFullNutr) continue;
+      // Coalesce missing pieces to whatever we already had (or 0)
+      const merged = {
+        kcal:    nutr.kcal    ?? food.kcal    ?? 0,
+        protein: nutr.protein ?? food.protein ?? 0,
+        fat:     nutr.fat     ?? food.fat     ?? 0,
+        carbs:   nutr.carbs   ?? food.carbs   ?? 0,
+      };
       FOODS[key] = {
         name,
         silpoTitle:      best.title,
@@ -1545,7 +1569,7 @@ async function enrichFoodsFromSilpo(progress) {
         silpoPrice:      best.displayPrice ?? null,
         silpoPriceRatio: best.displayRatio ?? null,
         source: 'silpo',
-        ...nutr,
+        ...merged,
       };
       if (db) set(ref(db, 'racion/foods/' + key), FOODS[key]).catch(() => {});
       upgraded++;
