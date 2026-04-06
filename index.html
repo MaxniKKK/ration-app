@@ -245,6 +245,20 @@
         <div class="ph-title">⚙️ Профіль</div>
         <div class="ph-sub">Люди, цілі, прийоми їжі, заборонені продукти</div>
       </div>
+      <div class="ai-settings">
+        <div class="ai-set-title">🤖 AI генератор раціону</div>
+        <div class="ai-set-sub">Натисни 🤖 на екрані Меню → виклик до обраного AI з твоїм профілем. Ключ зберігається локально, не передається в Firebase.</div>
+        <div class="ai-prov-row">
+          <button class="ai-prov-btn" id="aip_claude" onclick="setAIProvider('claude')">Claude</button>
+          <button class="ai-prov-btn" id="aip_openai" onclick="setAIProvider('openai')">OpenAI</button>
+          <button class="ai-prov-btn" id="aip_gemini" onclick="setAIProvider('gemini')">Gemini</button>
+        </div>
+        <div class="ai-key-row">
+          <input class="ai-key-inp" id="aiKeyInp" type="password" placeholder="API ключ обраного провайдера...">
+          <button class="ai-key-save" onclick="saveAIKey()">Зберегти</button>
+        </div>
+        <div class="ai-key-status" id="aiKeyStatus">Не налаштовано</div>
+      </div>
       <div class="people-bar">
         <button class="btn-add-person" onclick="addPerson()">+ Додати людину</button>
       </div>
@@ -377,6 +391,16 @@
           <button class="pe-del" onclick="dmResetToDefault()">↺ Скинути до профіля</button>
           <button class="pe-save" onclick="saveDayMeals()">☁️ Зберегти</button>
         </div>
+      </div>
+    </div>
+
+    <!-- CUSTOM CONFIRM MODAL -->
+    <div class="cf-modal" id="cfModal" onclick="cfClose()">
+      <div class="cf-sheet" onclick="event.stopPropagation()">
+        <div class="cf-icon" id="cfIcon">❓</div>
+        <div class="cf-title" id="cfTitle"></div>
+        <div class="cf-text" id="cfText"></div>
+        <div class="cf-actions" id="cfActions"></div>
       </div>
     </div>
 

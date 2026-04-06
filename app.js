@@ -594,7 +594,7 @@ window.showScreen = function (s) {
   document.getElementById("nt-" + s).classList.add("active");
   if (s === "diary") renderCal();
   if (s === "search") renderFoodsDir();
-  if (s === "profile") renderPeople();
+  if (s === "profile") { renderPeople(); refreshAISettingsUI(); }
 };
 
 // ═══════════════════════════════
@@ -1593,12 +1593,28 @@ window.applyNewFoodSilpo = async function(idx) {
 // ═══════════════════════════════
 
 window.confirmAutoFill = function() {
-  const choice = confirm(
-    '🤖 Автоплан\n\n' +
-    'OK → Скласти НОВИЙ тижневий план і завантажити КБЖУ з Сільпо\n' +
-    'Скасувати → Тільки оновити КБЖУ для наявних продуктів'
-  );
-  autoFillWeek(choice);
+  const hasKey = !!getAIKey();
+  const provLabel = AI_PROVIDERS[getAIProvider()].label;
+  showConfirm({
+    icon: '🤖',
+    title: 'Автоплан раціону',
+    text: hasKey
+      ? `${provLabel} згенерує тиждень з твого профіля (ккал, заборонені продукти, прийоми їжі).`
+      : `Ще не налаштовано AI. Зайди в Профіль і додай ключ для ${provLabel}, або синхронізуй довідник без генерації.`,
+    actions: [
+      hasKey && {
+        label: '✨ Згенерувати тиждень через AI',
+        style: 'primary',
+        onClick: () => autoFillWeek(true),
+      },
+      {
+        label: '🔄 Тільки синхронізувати довідник',
+        style: 'secondary',
+        onClick: () => autoFillWeek(false),
+      },
+      { label: 'Скасувати', style: 'cancel' },
+    ].filter(Boolean),
+  });
 };
 
 // Score how well a Silpo product matches a query (lower = better).
@@ -1707,39 +1723,53 @@ async function autoFillWeek(applyTemplate = false) {
   overlay.classList.add('on');
   bar.style.width = '0%';
 
-  // Phase 1 — generate plan from profile (only on explicit "OK" choice).
-  // Generator embeds POOL КБЖУ in every item and seeds FOODS so the directory
-  // is 100% populated. NO Silpo network calls happen here — Silpo linking is
-  // a per-product opt-in via 🔗 button in the product card.
-  if (applyTemplate) {
-    title.textContent = 'Складаємо план...';
-    sub.textContent = 'Генеруємо тиждень з профілів';
-    bar.style.width = '30%';
-    applyPlanTemplate();
+  try {
+    // Phase 1 — AI generation (only on explicit "Згенерувати" choice).
+    // Calls the active provider for each person, parses JSON response,
+    // writes into MENU and seeds FOODS with AI-provided nutrition.
+    if (applyTemplate) {
+      const provLabel = AI_PROVIDERS[getAIProvider()].label;
+      title.textContent = `${provLabel} генерує план...`;
+      const ids = getPeopleIds();
+      for (let i = 0; i < ids.length; i++) {
+        const pid = ids[i];
+        sub.textContent = getPersonName(pid) + ` (${i+1}/${ids.length})`;
+        bar.style.width = `${Math.round((i / ids.length) * 60)}%`;
+        await generateMenuViaAI(pid);
+      }
+    }
+
+    // Phase 2 — make sure every menu item has a FOODS entry (covers manually
+    // edited items between regenerations).
+    bar.style.width = '70%';
+    title.textContent = 'Оновлюємо довідник';
+    sub.textContent = '';
+    seedFoodsFromMenu();
+
+    // Phase 3 — push current FOODS data back into menu items
+    bar.style.width = '90%';
+    applyFoodsToMenuItems();
+
+    // Save
+    bar.style.width = '100%';
+    title.textContent = '✓ Готово!';
+    sub.textContent = applyTemplate
+      ? 'План згенеровано через AI. Привʼяжи продукти до Сільпо вручну (🔗 у картці продукту)'
+      : 'Довідник синхронізовано з меню';
+    if (db) set(ref(db, 'racion/menu'), MENU).then(() => setSyncStatus('ok', 'Збережено ✓')).catch(() => {});
+    renderMeals();
+    renderTotals();
+    renderFoodsDir();
+    setTimeout(() => overlay.classList.remove('on'), 2200);
+  } catch (e) {
+    overlay.classList.remove('on');
+    showConfirm({
+      icon: '⚠️',
+      title: 'Помилка генерації',
+      text: e.message || String(e),
+      actions: [{ label: 'Зрозуміло', style: 'primary' }],
+    });
   }
-
-  // Phase 2 — make sure every menu item has a FOODS entry (covers manually
-  // edited items between regenerations). Stubs get 0 КБЖУ; user can fill
-  // them later via 🤖 (POOL) or 🔗 (Silpo) buttons in the product card.
-  bar.style.width = '60%';
-  sub.textContent = 'Оновлюємо довідник';
-  seedFoodsFromMenu();
-
-  // Phase 3 — push current FOODS data back into menu items
-  bar.style.width = '90%';
-  applyFoodsToMenuItems();
-
-  // Save
-  bar.style.width = '100%';
-  title.textContent = '✓ Готово!';
-  sub.textContent = applyTemplate
-    ? 'План створено з даних профіля. Привʼяжи продукти до Сільпо вручну (🔗 у картці продукту)'
-    : 'Довідник синхронізовано з меню';
-  if (db) set(ref(db, 'racion/menu'), MENU).then(() => setSyncStatus('ok', 'Збережено ✓')).catch(() => {});
-  renderMeals();
-  renderTotals();
-  renderFoodsDir();
-  setTimeout(() => overlay.classList.remove('on'), 2200);
 }
 
 // ═══════════════════════════════
@@ -2374,6 +2404,275 @@ window.deletePersonFromEditor = async function() {
   renderMenuPage();
   showToast('Видалено');
 };
+
+// ═══════════════════════════════
+// CUSTOM CONFIRM MODAL
+// ═══════════════════════════════
+// showConfirm({icon, title, text, actions})
+// actions = [{ label, style:'primary'|'secondary'|'danger'|'cancel', onClick }]
+window.showConfirm = function({ icon, title, text, actions }) {
+  document.getElementById('cfIcon').textContent = icon || '❓';
+  document.getElementById('cfTitle').textContent = title || '';
+  document.getElementById('cfText').textContent = text || '';
+  const actEl = document.getElementById('cfActions');
+  actEl.innerHTML = '';
+  for (const a of (actions || [])) {
+    const btn = document.createElement('button');
+    btn.className = 'cf-btn cf-btn-' + (a.style || 'secondary');
+    btn.textContent = a.label;
+    btn.onclick = () => { cfClose(); a.onClick?.(); };
+    actEl.appendChild(btn);
+  }
+  document.getElementById('cfModal').classList.add('on');
+};
+
+window.cfClose = function() {
+  document.getElementById('cfModal').classList.remove('on');
+};
+
+// ═══════════════════════════════
+// AI PROVIDERS
+// ═══════════════════════════════
+// Provider configs are stored in localStorage. Each user picks one and pastes
+// their own key. Keys never leave the device.
+const AI_PROVIDERS = {
+  claude: {
+    label: 'Claude (Anthropic)',
+    keyHint: 'sk-ant-...',
+    docsUrl: 'https://console.anthropic.com/settings/keys',
+    needsProxy: false,
+  },
+  openai: {
+    label: 'OpenAI (GPT)',
+    keyHint: 'sk-...',
+    docsUrl: 'https://platform.openai.com/api-keys',
+    needsProxy: true,  // CORS blocks direct browser calls
+  },
+  gemini: {
+    label: 'Google Gemini',
+    keyHint: 'AIza...',
+    docsUrl: 'https://aistudio.google.com/apikey',
+    needsProxy: false,
+  },
+};
+
+function getAIProvider() {
+  return localStorage.getItem('ai_provider') || 'claude';
+}
+
+function getAIKey(provider) {
+  return localStorage.getItem('ai_key_' + (provider || getAIProvider())) || '';
+}
+
+window.setAIProvider = function(p) {
+  localStorage.setItem('ai_provider', p);
+  refreshAISettingsUI();
+};
+
+window.saveAIKey = function() {
+  const provider = getAIProvider();
+  const key = document.getElementById('aiKeyInp').value.trim();
+  if (!key) {
+    localStorage.removeItem('ai_key_' + provider);
+    showToast('Ключ видалено');
+  } else {
+    localStorage.setItem('ai_key_' + provider, key);
+    showToast('Ключ збережено ✓');
+  }
+  refreshAISettingsUI();
+};
+
+function refreshAISettingsUI() {
+  const provider = getAIProvider();
+  ['claude','openai','gemini'].forEach(p =>
+    document.getElementById('aip_' + p)?.classList.toggle('active', p === provider)
+  );
+  const cfg = AI_PROVIDERS[provider];
+  const inp = document.getElementById('aiKeyInp');
+  if (inp) {
+    inp.placeholder = cfg.keyHint;
+    inp.value = getAIKey(provider);
+  }
+  const status = document.getElementById('aiKeyStatus');
+  if (status) {
+    const has = !!getAIKey(provider);
+    status.textContent = has
+      ? `${cfg.label} — ключ збережено ✓`
+      : `${cfg.label} — потрібен ключ. Отримай тут: ${cfg.docsUrl}`;
+    status.classList.toggle('ok', has);
+  }
+}
+
+// Build the prompt for plan generation. Returns a string ready to send.
+function buildPlanPrompt(person) {
+  const meals = (person.meals || DEFAULT_MEALS).map(m =>
+    `  - ${m.key}: ${m.name} (${m.time})`
+  ).join('\n');
+  const t = person.targets || {};
+  const fb = (person.forbidden || []).join(', ') || 'немає';
+  return `Згенеруй тижневий план харчування для людини. Поверни ВИКЛЮЧНО валідний JSON, без жодного тексту до або після.
+
+Профіль:
+- Імʼя: ${person.name || 'Користувач'}
+- Вік: ${person.age || 'не вказано'}
+- Вага: ${person.weight ? person.weight + ' кг' : 'не вказано'}
+- Денна ціль: ${t.kcal || 2000} ккал, ${t.protein || 150}г білка, ${t.fat || 65}г жирів, ${t.carbs || 200}г вуглеводів
+- Заборонені продукти (НЕ використовувати): ${fb}
+- Прийоми їжі (точно ці слоти, не змінюй ключі):
+${meals}
+
+Вимоги:
+1. Згенеруй РІВНО 7 днів (weekday 0=Неділя, 1=Понеділок, ..., 6=Субота).
+2. Кожен день має містити кожен прийом їжі зі списку вище (за key).
+3. Кожен прийом має 2-5 інгредієнтів. Назви українською, реальні продукти що можна купити в Україні.
+4. Порції — реалістичні (наприклад 150г куряче філе, 100г гречки, 100г огірка).
+5. Денна сума ккал має бути близькою до цілі ±100 ккал.
+6. Різноманітність — не повторюй однакові прийоми кожного дня. Використовуй різні білки, крупи, овочі, фрукти.
+7. ВРАХУЙ заборонені продукти — не використовуй їх взагалі і не використовуй варіації (наприклад "лосось" забороняє і "стейк лосося", і "філе лосося").
+8. Кожен item має містити ТОЧНІ значення per-100g — не вигадуй, використовуй реальні харчові дані.
+
+Формат відповіді (точно такий, без коментарів):
+{
+  "days": [
+    {
+      "weekday": 1,
+      "meals": {
+        "breakfast": {
+          "items": [
+            { "n": "Куряче філе", "g": "150г", "kcal_per_100": 110, "protein_per_100": 23, "fat_per_100": 1.2, "carbs_per_100": 0 }
+          ]
+        }
+      }
+    }
+  ]
+}`;
+}
+
+// Call the active provider with the given prompt. Returns the raw text response.
+async function callAIProvider(prompt) {
+  const provider = getAIProvider();
+  const key = getAIKey(provider);
+  if (!key) throw new Error(`Не налаштовано API ключ для ${AI_PROVIDERS[provider].label}. Зайди в Профіль.`);
+
+  if (provider === 'claude') {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-5',
+        max_tokens: 8192,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+    if (!r.ok) throw new Error(`Claude API: ${r.status} ${await r.text()}`);
+    const data = await r.json();
+    return data.content?.[0]?.text || '';
+  }
+
+  if (provider === 'gemini') {
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(key)}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 8192 },
+      }),
+    });
+    if (!r.ok) throw new Error(`Gemini API: ${r.status} ${await r.text()}`);
+    const data = await r.json();
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  }
+
+  if (provider === 'openai') {
+    // OpenAI blocks direct browser calls via CORS. Requires a proxy
+    // (e.g. a Cloudflare Worker that forwards to api.openai.com). Until
+    // that's set up we just throw — keep the option visible in UI for later.
+    throw new Error('OpenAI потребує проксі-сервера через CORS. Поки використовуй Claude або Gemini.');
+  }
+
+  throw new Error('Невідомий AI провайдер: ' + provider);
+}
+
+// Strip ```json ... ``` fences and any preamble, parse JSON
+function parseAIPlanResponse(text) {
+  let t = String(text || '').trim();
+  // Drop fenced code blocks
+  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fence) t = fence[1].trim();
+  // Find first { and last }
+  const first = t.indexOf('{');
+  const last  = t.lastIndexOf('}');
+  if (first >= 0 && last > first) t = t.slice(first, last + 1);
+  return JSON.parse(t);
+}
+
+// Call AI for one person, parse, write into MENU[pid]
+async function generateMenuViaAI(pid) {
+  const person = getPerson(pid);
+  if (!person) return;
+  const prompt = buildPlanPrompt(person);
+  const raw = await callAIProvider(prompt);
+  const data = parseAIPlanResponse(raw);
+  if (!data?.days || !Array.isArray(data.days)) {
+    throw new Error('AI повернув некоректну структуру (немає масиву days)');
+  }
+
+  if (!MENU[pid]) MENU[pid] = {};
+  const targets = getPersonTargets(pid);
+
+  for (const day of data.days) {
+    const wd = Number(day.weekday);
+    if (!Number.isInteger(wd) || wd < 0 || wd > 6) continue;
+    const newDay = { totals: { ...targets } };
+    // Preserve existing meal-slot override on the day
+    if (MENU[pid][wd]?.meals) newDay.meals = MENU[pid][wd].meals;
+
+    for (const [mealKey, meal] of Object.entries(day.meals || {})) {
+      if (!Array.isArray(meal.items)) continue;
+      const items = meal.items
+        .filter(it => it && it.n)
+        .map(it => {
+          // Seed FOODS so the directory always has the AI's nutrition data
+          const name = String(it.n).trim();
+          const cleaned = {
+            kcal:    Number(it.kcal_per_100)    || 0,
+            protein: Number(it.protein_per_100) || 0,
+            fat:     Number(it.fat_per_100)     || 0,
+            carbs:   Number(it.carbs_per_100)   || 0,
+          };
+          const key = foodKey(name);
+          if (!FOODS[key] || FOODS[key].source === 'auto') {
+            FOODS[key] = { name, ...cleaned, source: 'auto' };
+            if (db) set(ref(db, 'racion/foods/' + key), FOODS[key]).catch(() => {});
+          }
+          // Build menu item with embedded nutrition + Silpo link if any
+          const item = {
+            n: name,
+            g: String(it.g || '100г'),
+            kcal_per_100:    cleaned.kcal,
+            protein_per_100: cleaned.protein,
+            fat_per_100:     cleaned.fat,
+            carbs_per_100:   cleaned.carbs,
+          };
+          const food = FOODS[key];
+          if (food?.silpoSlug) {
+            item.silpoSlug       = food.silpoSlug;
+            item.silpoPrice      = food.silpoPrice      ?? null;
+            item.silpoPriceRatio = food.silpoPriceRatio ?? null;
+          }
+          return item;
+        });
+      newDay[mealKey] = { kcal: 0, items };
+    }
+
+    MENU[pid][wd] = newDay;
+  }
+}
 
 // ═══════════════════════════════
 // TOAST

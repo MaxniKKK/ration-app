@@ -416,6 +416,35 @@ body{background:var(--bg);color:var(--text);font-family:'Golos Text',sans-serif;
 .pe-meal-del{background:rgba(239,68,68,.08);border:none;border-radius:7px;color:#ef4444;font-size:13px;width:28px;height:28px;cursor:pointer;}
 .pe-add-meal{width:100%;background:rgba(200,245,74,.06);border:1px dashed rgba(200,245,74,.2);border-radius:7px;color:var(--accent);font-size:11px;padding:7px;cursor:pointer;font-family:'Golos Text',sans-serif;margin-top:4px;}
 
+/* ── CUSTOM CONFIRM MODAL ── */
+.cf-modal{position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:700;display:none;align-items:center;justify-content:center;padding:24px;}
+.cf-modal.on{display:flex;}
+.cf-sheet{background:var(--card);border-radius:18px;border:1px solid var(--border);max-width:380px;width:100%;padding:26px 22px 22px;text-align:center;animation:cfPop .18s ease-out;}
+@keyframes cfPop{from{transform:scale(.92);opacity:0;}to{transform:scale(1);opacity:1;}}
+.cf-icon{font-size:42px;margin-bottom:12px;line-height:1;}
+.cf-title{font-family:'Unbounded',sans-serif;font-size:15px;font-weight:800;margin-bottom:8px;}
+.cf-text{font-size:12px;color:var(--muted);line-height:1.55;margin-bottom:20px;}
+.cf-actions{display:flex;flex-direction:column;gap:8px;}
+.cf-btn{padding:13px;border-radius:12px;font-family:'Unbounded',sans-serif;font-size:11px;font-weight:700;cursor:pointer;border:none;text-align:center;}
+.cf-btn-primary{background:var(--accent);color:#000;}
+.cf-btn-secondary{background:var(--card2);color:var(--text);border:1px solid var(--border);}
+.cf-btn-danger{background:rgba(239,68,68,.1);color:#ef4444;border:1px solid rgba(239,68,68,.25);}
+.cf-btn-cancel{background:none;color:var(--muted);}
+
+/* ── AI PROVIDER SETTINGS (in Profile screen) ── */
+.ai-settings{background:var(--card);border:1px solid var(--border);border-radius:13px;padding:14px 15px;margin:0 16px 14px;max-width:500px;}
+.ai-set-title{font-family:'Unbounded',sans-serif;font-size:11px;font-weight:700;margin-bottom:3px;display:flex;align-items:center;gap:6px;}
+.ai-set-sub{font-size:10px;color:var(--muted);margin-bottom:11px;line-height:1.45;}
+.ai-prov-row{display:flex;gap:6px;margin-bottom:10px;}
+.ai-prov-btn{flex:1;padding:9px 4px;background:var(--card2);border:1.5px solid var(--border);border-radius:9px;font-family:'Unbounded',sans-serif;font-size:9px;font-weight:700;color:var(--muted);cursor:pointer;}
+.ai-prov-btn.active{border-color:var(--accent);color:var(--accent);background:rgba(200,245,74,.07);}
+.ai-key-row{display:flex;gap:6px;}
+.ai-key-inp{flex:1;background:#0d0d0d;border:1px solid var(--border);border-radius:9px;padding:9px 11px;color:var(--text);font-family:'Golos Text',sans-serif;font-size:12px;outline:none;min-width:0;}
+.ai-key-inp:focus{border-color:var(--accent);}
+.ai-key-save{padding:9px 14px;background:var(--accent);border:none;border-radius:9px;font-family:'Unbounded',sans-serif;font-size:9px;font-weight:700;color:#000;cursor:pointer;}
+.ai-key-status{font-size:10px;color:var(--muted);margin-top:7px;}
+.ai-key-status.ok{color:var(--accent);}
+
 /* TOAST */
 .toast{position:fixed;bottom:72px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--accent);color:#000;font-family:'Unbounded',sans-serif;font-size:10px;font-weight:700;padding:9px 19px;border-radius:28px;z-index:400;opacity:0;transition:all .3s;pointer-events:none;white-space:nowrap;}
 .toast.on{opacity:1;transform:translateX(-50%) translateY(0);}
