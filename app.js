@@ -492,14 +492,37 @@ function renderDays() {
 }
 
 window.setPerson = function (p) {
+  if (!getPerson(p)) p = getPeopleIds()[0];  // fallback if person was deleted
   person = p;
-  document.body.className = p === "you" ? "py" : "ph";
-  document
-    .querySelectorAll(".ptab")
-    .forEach((t) => t.classList.remove("active"));
-  document.querySelector(".ptab." + p).classList.add("active");
+  // Active person color drives --current-person CSS variable used in
+  // .meal-kc and .vitems li::before across the menu screen.
+  document.body.style.setProperty('--current-person', getPersonColor(p));
   renderMenuPage();
 };
+
+// Build the person tab strip from PEOPLE; called by renderMenuPage and any
+// time the people set changes (add/remove/edit person).
+function renderPtabs() {
+  const c = document.getElementById('ptabs');
+  if (!c) return;
+  const ids = getPeopleIds();
+  // Self-heal: if current person was deleted, switch to first available
+  if (!ids.includes(person) && ids.length) person = ids[0];
+  c.innerHTML = ids.map(pid => {
+    const p = getPerson(pid);
+    const active = pid === person;
+    const color = p?.color || '#c8f54a';
+    const tgt = p?.targets || {};
+    const inline = active
+      ? `border-color:${color};background:${hexToRgba(color, .07)};`
+      : '';
+    const nameStyle = active ? `color:${color};` : '';
+    return `<div class="ptab${active ? ' active' : ''}" style="${inline}" onclick="setPerson('${pid}')">
+      <span class="pn" style="${nameStyle}">${escapeHtml(p?.name || pid)}</span>
+      <span class="pk">${(tgt.kcal || 0).toLocaleString('uk-UA')} ккал</span>
+    </div>`;
+  }).join('');
+}
 
 window.toggleEdit = function () {
   editMode = !editMode;
@@ -560,6 +583,12 @@ window.saveEdit = async function () {
 };
 
 function renderMenuPage() {
+  // Self-heal active person if it was deleted
+  const ids = getPeopleIds();
+  if (ids.length && !ids.includes(person)) person = ids[0];
+  // Sync the active-person color variable in case of fresh load
+  document.body.style.setProperty('--current-person', getPersonColor(person));
+  renderPtabs();
   document.getElementById("dayLbl").textContent = DAYS[curDay];
   const pname = getPersonName(person);
   const tgt = getPersonTargets(person);

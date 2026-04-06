@@ -31,7 +31,7 @@
 
     <link rel="stylesheet" href="styles.css" />
   </head>
-  <body class="py">
+  <body>
     <!-- SETUP SCREEN -->
     <div class="setup-screen" id="setupScreen">
       <div class="setup-logo">🥗 Раціон</div>
@@ -117,14 +117,7 @@
       <div class="mcontent">
         <div class="day-lbl" id="dayLbl"></div>
         <div class="day-sub" id="daySub"></div>
-        <div class="ptabs">
-          <div class="ptab you active" onclick="setPerson('you')">
-            <span class="pn">Ти</span><span class="pk">2 200 ккал</span>
-          </div>
-          <div class="ptab her" onclick="setPerson('her')">
-            <span class="pn">Вона</span><span class="pk">1 800 ккал</span>
-          </div>
-        </div>
+        <div class="ptabs" id="ptabs"></div>
         <div class="edit-banner" id="editBanner">
           ✏️ Режим редагування — зміни збережуться для обох
         </div>

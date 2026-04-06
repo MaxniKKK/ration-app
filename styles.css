@@ -2,7 +2,8 @@
   --bg:#0a0a0a;--card:#161616;--card2:#1e1e1e;--card3:#242424;
   --accent:#c8f54a;--accent2:#ff6b35;--blue:#7dd3fc;
   --text:#f0f0f0;--muted:#555;--border:#252525;
-  --you:#c8f54a;--her:#ff6b35;
+  /* Active person color — set dynamically by setPerson() in JS */
+  --current-person:#c8f54a;
 }
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 body{background:var(--bg);color:var(--text);font-family:'Golos Text',sans-serif;min-height:100vh;overflow-x:hidden;}
@@ -100,10 +101,8 @@ body{background:var(--bg);color:var(--text);font-family:'Golos Text',sans-serif;
 .ptab{flex:1;padding:9px;border-radius:10px;border:1.5px solid var(--border);background:transparent;cursor:pointer;transition:all .2s;text-align:center;}
 .ptab .pn{font-family:'Unbounded',sans-serif;font-size:10px;font-weight:700;display:block;margin-bottom:1px;color:var(--muted);}
 .ptab .pk{font-size:10px;color:var(--muted);}
-.ptab.you.active{border-color:var(--you);background:rgba(200,245,74,.07);}
-.ptab.you.active .pn{color:var(--you);}
-.ptab.her.active{border-color:var(--her);background:rgba(255,107,53,.07);}
-.ptab.her.active .pn{color:var(--her);}
+/* .ptab.active gets its border-color/background/text-color via inline style
+   from renderPtabs() in JS, using the person's own color from PEOPLE[pid].color */
 .edit-banner{display:none;background:rgba(255,107,53,.08);border:1px solid rgba(255,107,53,.2);border-radius:9px;padding:8px 12px;margin-bottom:13px;font-size:11px;color:var(--accent2);text-align:center;}
 .edit-banner.on{display:block;}
 
@@ -127,8 +126,8 @@ body{background:var(--bg);color:var(--text);font-family:'Golos Text',sans-serif;
 .vitems li:last-child{border-bottom:none;}
 .vitems li::before{content:'';width:4px;height:4px;border-radius:50%;background:var(--accent);flex-shrink:0;}
 .vgr{margin-left:auto;font-size:10px;color:var(--muted);}
-body.py .meal-kc{color:var(--you);}body.ph .meal-kc{color:var(--her);}
-body.py .vitems li::before{background:var(--you);}body.ph .vitems li::before{background:var(--her);}
+.meal-kc{color:var(--current-person);}
+.vitems li::before{background:var(--current-person);}
 .ib{background:rgba(251,191,36,.12);}.is{background:rgba(134,239,172,.1);}
 .il{background:rgba(200,245,74,.1);}.is2{background:rgba(196,181,253,.1);}.id{background:rgba(255,107,53,.1);}
 .eitems{padding:8px 10px 6px;display:flex;flex-direction:column;gap:5px;}
@@ -234,8 +233,6 @@ body.py .vitems li::before{background:var(--you);}body.ph .vitems li::before{bac
 .wr-date{font-size:10px;color:var(--muted);}
 .wr-r{display:flex;gap:6px;align-items:center;}
 .wrbadge{font-family:'Unbounded',sans-serif;font-size:9px;font-weight:700;padding:3px 7px;border-radius:18px;}
-.wrbadge.y{background:rgba(200,245,74,.12);color:var(--you);}
-.wrbadge.h{background:rgba(255,107,53,.12);color:var(--her);}
 .wrbadge.e{background:var(--card2);color:var(--muted);}
 
 /* ── SEARCH SCREEN ── */
