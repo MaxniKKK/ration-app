@@ -144,6 +144,39 @@ const INGREDIENT_POOL = {
 // Other categories (dairy/fruit/veggie) stay near their default portion.
 const SCALABLE_CATEGORIES = new Set(['protein', 'carb']);
 
+// ── PIECE-UNIT INGREDIENTS ──────────────────────────────────────────────
+// Products that are practical to measure in whole pieces, not grams.
+// Each entry: stem (lowercase substring of name) → average per-piece weight + unit label.
+// The local generator snaps grams of these products to a whole number of
+// pieces so the user gets "2 шт яйця" instead of "115г яєць".
+const PIECE_UNITS = [
+  { stem: 'яйц',      g: 55,  unit: 'шт' },
+  { stem: 'яєц',      g: 55,  unit: 'шт' },
+  { stem: 'банан',    g: 120, unit: 'шт' },
+  { stem: 'яблук',    g: 150, unit: 'шт' },
+  { stem: 'апельсин', g: 150, unit: 'шт' },
+  { stem: 'мандарин', g: 80,  unit: 'шт' },
+  { stem: 'лимон',    g: 100, unit: 'шт' },
+  { stem: 'авокадо',  g: 200, unit: 'шт' },
+  { stem: 'хліб',     g: 25,  unit: 'скибк' },
+  { stem: 'тост',     g: 25,  unit: 'скибк' },
+  { stem: 'часник',   g: 5,   unit: 'зубч' },
+  { stem: 'цибул',    g: 100, unit: 'шт' },
+  { stem: 'морква',   g: 90,  unit: 'шт' },
+  { stem: 'огірок',   g: 100, unit: 'шт' },
+  { stem: 'помідор',  g: 100, unit: 'шт' },
+  { stem: 'картопл',  g: 130, unit: 'шт' },
+  { stem: 'перц',     g: 120, unit: 'шт' },
+  { stem: 'кабачк',   g: 250, unit: 'шт' },
+];
+
+// Returns { g, unit } for a product name, or null if measured in grams.
+function getPieceInfo(name) {
+  if (!name) return null;
+  const n = String(name).toLowerCase();
+  return PIECE_UNITS.find(p => n.includes(p.stem)) || null;
+}
+
 // Lookup an ingredient by name across all categories
 function findInPool(name) {
   for (const cat of Object.keys(INGREDIENT_POOL)) {
@@ -797,10 +830,14 @@ function renderMeals() {
       const rows = meal.items.map((it, i) => {
         const hasN = it.kcal_per_100 != null && parseG(it.g) > 0;
         const iKc = hasN ? Math.round(parseG(it.g) * it.kcal_per_100 / 100) : 0;
+        const hasPieces = it.pieceG && it.pieces != null;
+        const portionInput = hasPieces
+          ? `<input class="ein sm" value="${it.pieces}" placeholder="${it.pieceUnit}" title="${it.pieceUnit} (×${it.pieceG}г)" oninput="updPieces('${m.key}',${i},this.value)">`
+          : `<input class="ein sm" value="${it.g||''}" placeholder="г" oninput="updG('${m.key}',${i},this.value)">`;
         return `
   <div class="erow">
     <input class="ein ein-search" value="${(it.n||'').replace(/"/g,'&quot;')}" placeholder="🔍 Пошук в Сільпо..." readonly onclick="openMSearch('${m.key}',${i})">
-    <input class="ein sm" value="${it.g||''}" placeholder="г" oninput="updG('${m.key}',${i},this.value)">
+    ${portionInput}
     <span class="item-kcal" id="ikcal_${m.key}_${i}" ${!hasN?'style="display:none"':''}>${iKc}кк</span>
     <button class="bdel" onclick="delRow('${m.key}',${i})">✕</button>
   </div>`;
@@ -823,7 +860,10 @@ function renderMeals() {
         const iKcal = (it.kcal_per_100 != null && g > 0)
           ? Math.round(g * it.kcal_per_100 / 100) : null;
         const srcLink = getItemSourceLink(it);
-        return `<li>${it.n || ""}${it.g ? `<span class="vgr">${it.g}</span>` : ""}${iKcal != null ? `<span class="item-kcal">${iKcal}кк</span>` : ""}${srcLink}</li>`;
+        const portionLabel = it.pieces
+          ? `<span class="vgr">${it.pieces} ${it.pieceUnit} · ${it.g}</span>`
+          : (it.g ? `<span class="vgr">${it.g}</span>` : "");
+        return `<li>${it.n || ""}${portionLabel}${iKcal != null ? `<span class="item-kcal">${iKcal}кк</span>` : ""}${srcLink}</li>`;
       }).join("");
       // If this slot was generated from a recipe, show a clickable recipe
       // header before the ingredient list (so the user knows what dish it is)
@@ -938,6 +978,24 @@ function recalcMealKcal(mk) {
   if (ekc) { ekc.value = calc.kcal; ekc.style.borderColor = "var(--accent)"; ekc.style.color = "var(--accent)"; }
   renderTotals();
 }
+
+window.updPieces = function(mk, i, v) {
+  const item = MENU[person][curDay][mk].items[i];
+  const n = parseFloat(String(v).replace(',', '.')) || 0;
+  item.pieces = n;
+  item.g = Math.round(n * (item.pieceG || 0)) + 'г';
+  const iEl = document.getElementById("ikcal_" + mk + "_" + i);
+  if (iEl) {
+    const g = parseG(item.g);
+    if (item.kcal_per_100 && g > 0) {
+      iEl.textContent = Math.round(g * item.kcal_per_100 / 100) + "кк";
+      iEl.style.display = "";
+    } else {
+      iEl.style.display = "none";
+    }
+  }
+  recalcMealKcal(mk);
+};
 
 window.updG = function(mk, i, v) {
   MENU[person][curDay][mk].items[i].g = v;
@@ -4306,14 +4364,19 @@ function generateMenuLocally(pid) {
       if (recipeKcal > 0) {
         scale = Math.max(0.25, Math.min(1.5, targetKcal / recipeKcal));
       }
-      console.log('[gen]', getPersonName(pid), 'd'+day, slot.name, '→', recipe.name,
-        '| target', targetKcal, 'recipeKcal', Math.round(recipeKcal),
-        'scale', scale.toFixed(2), 'linked', linkedItems.length);
 
       const items = linkedItems.map(({ l, product, grams }) => {
-        const scaledG = Math.max(5, Math.round(grams * scale / 5) * 5);
+        const name = l.productName || product.name || l.raw;
+        let scaledG = Math.max(5, Math.round(grams * scale / 5) * 5);
+        // Snap piece-unit products (eggs, bananas, bread slices…) to whole pieces
+        const pi = getPieceInfo(name);
+        let pieces = null;
+        if (pi) {
+          pieces = Math.max(1, Math.round(scaledG / pi.g));
+          scaledG = pieces * pi.g;
+        }
         const item = {
-          n: l.productName || product.name || l.raw,
+          n: name,
           g: `${scaledG}г`,
           kcal_per_100:    product.kcal    || 0,
           protein_per_100: product.protein || 0,
@@ -4321,6 +4384,11 @@ function generateMenuLocally(pid) {
           carbs_per_100:   product.carbs   || 0,
           productKey: l.productKey,
         };
+        if (pi) {
+          item.pieces    = pieces;
+          item.pieceUnit = pi.unit;
+          item.pieceG    = pi.g;
+        }
         if (product.silpoSlug) {
           item.silpoSlug       = product.silpoSlug;
           item.silpoPrice      = product.silpoPrice      ?? null;
