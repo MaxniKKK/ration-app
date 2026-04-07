@@ -538,6 +538,11 @@ function initFirebase(cfg) {
       if (val) DIARY = val;
     });
     // Load foods cache
+    // User-managed staples (stems) — used by isStapleLike during coverage analysis
+    onValue(ref(db, 'racion/customStaples'), (snap) => {
+      const arr = snap.val();
+      CUSTOM_STAPLES = new Set(Array.isArray(arr) ? arr : []);
+    });
     const foodsRef = ref(db, "racion/foods");
     onValue(foodsRef, (snap) => {
       const val = snap.val();
@@ -3561,8 +3566,12 @@ const TRUE_STAPLE_STEMS = new Set([
   'сол', 'сіл', 'посол', 'присол',
   // WATER — вода/води/льоду
   'вод', 'льод',
-  // SUGAR — цукор/цукру
+  // SUGAR — цукор/цукру/цукрова пудра (with мод 'пудр' stripped)
   'цук', 'цукор', 'цукр',
+  // FLOUR — будь-яке борошно (вважається базовим)
+  'борошн', 'мук',
+  // BAKING ESSENTIALS
+  'мед', 'крохмал', 'желатин', 'дріжд', 'розпуш', 'сод', 'розпушув',
 ]);
 
 // OPTIONAL ingredients — spices, oils, vinegar, herbs, etc. The user said
@@ -3576,19 +3585,25 @@ const OPTIONAL_INGREDIENT_STEMS = new Set([
   'олі', 'олій', 'олиї',
   // VINEGAR — оцет/оцту
   'оце', 'оцт', 'оцет',
-  // VANILLA
-  'ванілі', 'ваніль', 'ваніл',
+  // VANILLA — vanilla / vanilla sugar / vanillin
+  'ванілі', 'ваніль', 'ваніл', 'ванільн', 'ванілін',
   // Dried spices
   'лавр', 'кмин', 'паприк', 'кориц', 'мускат', 'гвоздик', 'кардамон',
   'імбир', 'куркум', 'базилік', 'орегано', 'чебрец', 'тимʼ', 'тим', 'розмарин',
   'мят', 'мʼят', 'кінз', 'фенхель', 'чилі', 'кайєн', 'каррі', 'хмел',
+  'спец', 'пряно', 'аніс', 'бадя', 'зір',
   // Fresh herbs
   'петрушк', 'кріп', 'кроп', 'зелен',
   // Baking basics
-  'сод', 'розпуш', 'дріжж',
+  'дріжж',
   // Garlic
   'часник', 'часн', 'часнк', 'зубчик', 'зубч', 'зубк',
 ]);
+
+// User-managed staples — populated from racion/customStaples on Firebase
+// load. The UI in Part 3 (missing-ingredients panel) lets the user add new
+// stems here. Treated identically to TRUE_STAPLE/OPTIONAL during analysis.
+let CUSTOM_STAPLES = new Set();
 
 // Strip adjective-modifier stems from a stem set so 'лавровий лист' becomes
 // just [lst] and 'червоний перець' becomes just [перец]. Modifiers use a
@@ -3633,9 +3648,40 @@ function isOptionalIngredient(parsedName) {
   return true;
 }
 
+// UNIFIED check: every significant stem is in TRUE ∪ OPTIONAL ∪ CUSTOM.
+// This is what the coverage analyzer uses — it correctly handles compound
+// lines like "сіль та перець до смаку" (where 'сіл' is TRUE and 'перц' is
+// OPTIONAL — both staple-like, so the whole line is skipped).
+function isStapleLike(parsedName) {
+  if (!parsedName) return false;
+  const all = stemsOf(parsedName);
+  if (!all.size) return false;
+  const significant = _stripModifiers(all);
+  if (!significant.length) return true;
+  for (const s of significant) {
+    if (TRUE_STAPLE_STEMS.has(s)) continue;
+    if (OPTIONAL_INGREDIENT_STEMS.has(s)) continue;
+    if (CUSTOM_STAPLES.has(s)) continue;
+    return false;
+  }
+  return true;
+}
+
 // Backwards-compat shim used by older callers (top-missing aggregation).
 function isPantryStaple(parsedName) {
-  return isTrueStaple(parsedName) || isOptionalIngredient(parsedName);
+  return isStapleLike(parsedName);
+}
+
+// Pick the most informative stem of a parsed ingredient — the longest
+// non-modifier stem. Used to group missing ingredients in the UI panel
+// so "пшеничне борошно" / "борошно для випічки" / "вівсяне борошно" all
+// collapse to a single 'борошн' bucket.
+function dominantStem(parsedName) {
+  const all = stemsOf(parsedName);
+  if (!all.size) return '';
+  const significant = _stripModifiers(all);
+  const pool = significant.length ? significant : [...all];
+  return pool.sort((a, b) => b.length - a.length)[0] || '';
 }
 
 // Parse a raw klopotenko ingredient string ("500 г свинини", "2 ст. л. олії",
@@ -3693,7 +3739,14 @@ const STAPLE_MODIFIER_STEMS = new Set([
   // 'до смаку' / 'за смаком' tail — gets parsed as 'смак', means 'to taste'
   'смак', 'смаку', 'смаком',
   // Sugar forms — 'цукрова пудра' = staple because 'цукр' is
-  'пудр',
+  'пудр', 'цукров',
+  // Flour adjectives — 'пшеничне борошно' / 'житнє борошно' / etc
+  'пшеничн', 'житн', 'кукурудз', 'рисов', 'мигдальн', 'кокосов',
+  'хлібн', 'здобн', 'булочн', 'тонк', 'грубий', 'цільн', 'питьов',
+  // Generic 'готовий', 'для випічки' filler
+  'готов', 'питний', 'дієтич',
+  // Vanilla — 'ванільний цукор' = staple because 'цукр' is
+  'ванільн', 'ванілін',
 ]);
 
 // Map post-stem irregular forms onto a canonical stem so different
@@ -3842,27 +3895,22 @@ function analyzeRecipeCoverage(recipe, productEntries) {
   const linked = [];
   for (const ing of ings) {
     const parsed = parseIngredientName(ing);
-    // 1. True staple (water/salt/sugar) — fully ignored
-    if (isTrueStaple(parsed)) {
-      linked.push({ raw: ing, kind: 'staple' });
-      continue;
-    }
-    // 2. Try to link to a real product (works for both required and optional)
+    // 1. Try linking against a real product (used by both staple and required paths)
     let foundProd = null;
     for (const prod of productEntries) {
       if (ingredientMatchesProduct(ing, prod.name)) { foundProd = prod; break; }
     }
-    // 3. Optional ingredient (spices, oil, vinegar, herbs, garlic) — link if
-    //    found, but don't count toward coverage threshold
-    if (isOptionalIngredient(parsed)) {
+    // 2. Staple-like (TRUE ∪ OPTIONAL ∪ CUSTOM) — never blocks coverage,
+    //    but still linked to a product if one happens to exist
+    if (isStapleLike(parsed)) {
       if (foundProd) {
         linked.push({ raw: ing, kind: 'linked', productKey: foundProd.key, productName: foundProd.name, optional: true });
       } else {
-        linked.push({ raw: ing, kind: 'optional' });
+        linked.push({ raw: ing, kind: 'staple' });
       }
       continue;
     }
-    // 4. Required ingredient — counted toward coverage
+    // 3. Required ingredient — counted toward coverage
     total++;
     if (foundProd) {
       matched++;
@@ -3881,6 +3929,10 @@ const RECIPE_WHITELIST_THRESHOLD = 0.7;
 
 let _recipeWhitelistFilterOn = false;
 
+// Aggregated missing-ingredients index, populated by runRecipeCoverageAnalysis.
+// Map<dominantStem, { stem, label, count, recipeKeys: Set<string> }>
+let _missingIngsIndex = new Map();
+
 window.runRecipeCoverageAnalysis = function() {
   const products = Object.entries(FOODS)
     .filter(([k, f]) => f && f.type !== 'recipe' && f.name)
@@ -3897,7 +3949,7 @@ window.runRecipeCoverageAnalysis = function() {
 
   const recipes = Object.entries(FOODS).filter(([k, f]) => f?.type === 'recipe');
   let whitelisted = 0;
-  const missingFreq = new Map();
+  const missingIdx = new Map(); // stem → { stem, label, count, recipeKeys }
   const fbBatch = {};
   for (const [key, recipe] of recipes) {
     const cov = analyzeRecipeCoverage(recipe, products);
@@ -3906,21 +3958,25 @@ window.runRecipeCoverageAnalysis = function() {
     recipe._whitelisted = isWhite;
     recipe.linkedIngredients = cov.linked;
     recipe.whitelisted = isWhite;
-    // Recompute KБЖУ from linked products' nutrition (overwrites stored values
-    // when at least one ingredient is linked)
     recomputeRecipeNutrition(recipe);
-    // Persist the WHOLE recipe entry so the recomputed kcal/protein/fat/carbs
-    // and totalG/totalKcal/computedFromIngs flags survive reloads.
     fbBatch['racion/foods/' + key] = recipe;
     if (isWhite) whitelisted++;
     for (const m of cov.missing) {
-      const base = parseIngredientName(m);
-      if (!base || isPantryStaple(base)) continue;
-      missingFreq.set(base, (missingFreq.get(base) || 0) + 1);
+      const parsed = parseIngredientName(m);
+      const stem = dominantStem(parsed);
+      if (!stem) continue;
+      let entry = missingIdx.get(stem);
+      if (!entry) {
+        entry = { stem, label: parsed || m, count: 0, recipeKeys: new Set() };
+        missingIdx.set(stem, entry);
+      }
+      entry.count++;
+      entry.recipeKeys.add(key);
+      // Prefer the SHORTEST raw label as canonical (less qualifier noise)
+      if ((parsed || '').length && parsed.length < entry.label.length) entry.label = parsed;
     }
   }
 
-  // Batched persist (chunks of 200 keys → ~50 recipes per call)
   if (db) {
     const keys = Object.keys(fbBatch);
     for (let i = 0; i < keys.length; i += 200) {
@@ -3930,18 +3986,105 @@ window.runRecipeCoverageAnalysis = function() {
     }
   }
 
-  // Top 12 missing ingredients
-  const top = [...missingFreq.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12);
-  const topText = top.map(([n, c]) => `• ${n} (${c})`).join('\n');
-
-  showConfirm({
-    icon: '🔬',
-    title: 'Аналіз покриття',
-    text: `${whitelisted} з ${recipes.length} рецептів мають ≥70% інгредієнтів у довіднику (${products.length} продуктів).\n\nНайчастіше відсутні:\n${topText || '—'}`,
-    actions: [{ label: 'Зрозуміло', style: 'primary' }],
-  });
+  _missingIngsIndex = missingIdx;
+  document.getElementById('mipSummary').textContent =
+    `${whitelisted} з ${recipes.length} рецептів покрито ≥70% (${products.length} продуктів)`;
+  renderMissingIngsPanel();
   renderRecipesView();
+  showToast(`Готово · ${whitelisted}/${recipes.length} whitelisted`);
 };
+
+// ── MISSING INGREDIENTS PANEL ─────────────────────────────────────────
+window.renderMissingIngsPanel = function() {
+  const panel = document.getElementById('missingIngsPanel');
+  const list  = document.getElementById('mipList');
+  if (!panel || !list) return;
+  if (!_missingIngsIndex.size) {
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = '';
+  const filter = (document.getElementById('mipFilter')?.value || '').trim().toLowerCase();
+  const rows = [..._missingIngsIndex.values()]
+    .filter(e => !filter || e.label.toLowerCase().includes(filter) || e.stem.includes(filter))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 80);
+  if (!rows.length) {
+    list.innerHTML = `<div class="mip-empty">Немає відсутніх інгредієнтів — або всі помічені як staple.</div>`;
+    return;
+  }
+  list.innerHTML = rows.map(e => `
+    <div class="mip-row">
+      <span class="mip-label" title="stem: ${e.stem}">${escapeHtml(e.label)}</span>
+      <span class="mip-count">${e.count}</span>
+      <button class="mip-btn mip-staple" onclick="markMissingAsStaple('${e.stem}')" title="Додати ${e.stem} у список staples — рецепти перестануть вважати це відсутнім">✓ Staple</button>
+      <button class="mip-btn mip-del" onclick="deleteRecipesContainingStem('${e.stem}')" title="Видалити всі ${e.count} рецептів що містять цей інгредієнт">🗑 ${e.count}</button>
+    </div>
+  `).join('');
+};
+
+window.filterMissingIngs = function() {
+  renderMissingIngsPanel();
+};
+
+window.markMissingAsStaple = async function(stem) {
+  if (!stem) return;
+  CUSTOM_STAPLES.add(stem);
+  if (db) {
+    try { await set(ref(db, 'racion/customStaples'), [...CUSTOM_STAPLES]); }
+    catch (e) { console.warn('[customStaples]', e); }
+  }
+  showToast(`'${stem}' помічено як staple`);
+  // Re-run analysis so the stem disappears from missing across all recipes
+  runRecipeCoverageAnalysis();
+};
+
+window.deleteRecipesContainingStem = function(stem) {
+  const entry = _missingIngsIndex.get(stem);
+  if (!entry) return;
+  showConfirm({
+    icon: '🗑',
+    title: `Видалити ${entry.count} рецептів?`,
+    text: `Усі рецепти що містять "${entry.label}" будуть видалені з довідника. Це не можна відмінити.`,
+    actions: [
+      { label: `Видалити ${entry.count}`, style: 'danger', onClick: () => doDeleteRecipesByKeys([...entry.recipeKeys], stem) },
+      { label: 'Скасувати', style: 'cancel' },
+    ],
+  });
+};
+
+async function doDeleteRecipesByKeys(keys, stem) {
+  const overlay = document.getElementById('progOverlay');
+  const bar     = document.getElementById('progBar');
+  const title   = document.getElementById('progTitle');
+  const sub     = document.getElementById('progSub');
+  overlay.classList.add('on');
+  title.textContent = '🗑 Видаляємо рецепти...';
+  sub.textContent = `${keys.length} записів`;
+  bar.style.width = '20%';
+  const batch = {};
+  for (const k of keys) {
+    delete FOODS[k];
+    batch['racion/foods/' + k] = null;
+  }
+  if (db) {
+    const allKeys = Object.keys(batch);
+    for (let i = 0; i < allKeys.length; i += 200) {
+      const chunk = {};
+      allKeys.slice(i, i + 200).forEach(k => chunk[k] = batch[k]);
+      try { await update(ref(db), chunk); } catch (e) { console.warn('[del-stem]', e); }
+      bar.style.width = `${20 + (i + 200) / allKeys.length * 75}%`;
+    }
+  }
+  bar.style.width = '100%';
+  title.textContent = '✓ Видалено';
+  sub.textContent = `${keys.length} рецептів видалено`;
+  // Drop the stem from index so the row disappears immediately
+  if (stem) _missingIngsIndex.delete(stem);
+  renderMissingIngsPanel();
+  renderRecipesView();
+  setTimeout(() => overlay.classList.remove('on'), 1200);
+}
 
 window.toggleRecipeWhitelistFilter = function() {
   _recipeWhitelistFilterOn = !_recipeWhitelistFilterOn;
@@ -4117,26 +4260,45 @@ const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
 
 window.promptKlopotenkoImport = function() {
   showConfirm({
-    icon: '🍳',
-    title: 'Імпортувати рецепт',
-    text: 'Встав посилання на рецепт з klopotenko.com — інгредієнти та КБЖУ підтягнуться автоматично.',
-    input: { placeholder: 'https://klopotenko.com/...' },
+    icon: '🔗',
+    title: 'Імпортувати рецепт за URL',
+    text: 'Встав посилання на будь-який рецептний сайт. Парсер шукає schema.org/Recipe — працює для klopotenko, allrecipes, NYT Cooking, smitten kitchen, eatingwell тощо.',
+    input: { placeholder: 'https://...' },
     actions: [
       { label: 'Імпортувати', style: 'primary', onClick: (url) => {
         const u = (url || '').trim();
-        if (!u || !u.includes('klopotenko.com')) {
-          showToast('Потрібен URL з klopotenko.com', 'err');
+        if (!u || !/^https?:\/\//.test(u)) {
+          showToast('Потрібен валідний URL', 'err');
           return;
         }
-        importKlopotenkoRecipe(u);
+        importRecipeFromUrl(u);
       }},
       { label: 'Скасувати', style: 'cancel' },
     ],
   });
 };
 
-async function importKlopotenkoRecipe(url) {
-  showAIBusy('🍳 Імпортуємо рецепт', 'Завантажуємо сторінку...');
+// Backwards-compat alias — old code paths may still call importKlopotenkoRecipe
+window.importKlopotenkoRecipe = (url) => importRecipeFromUrl(url);
+
+// Walk an arbitrary parsed JSON-LD blob looking for any Recipe object.
+// Schema.org pages may bundle Recipe inside an array, inside @graph, or as
+// the top-level object — we handle all three.
+function findRecipeNode(data) {
+  if (!data) return null;
+  const isRecipe = (x) =>
+    x && (x['@type'] === 'Recipe' ||
+      (Array.isArray(x['@type']) && x['@type'].includes('Recipe')));
+  if (isRecipe(data)) return data;
+  if (Array.isArray(data)) {
+    for (const x of data) { const r = findRecipeNode(x); if (r) return r; }
+  }
+  if (data['@graph']) return findRecipeNode(data['@graph']);
+  return null;
+}
+
+async function importRecipeFromUrl(url) {
+  showAIBusy('🔗 Імпортуємо рецепт', 'Завантажуємо сторінку...');
   try {
     const proxied = CORS_PROXY + encodeURIComponent(url);
     const r = await fetch(proxied);
@@ -4149,18 +4311,11 @@ async function importKlopotenkoRecipe(url) {
     for (const m of blocks) {
       try {
         const data = JSON.parse(m[1].trim());
-        if (Array.isArray(data)) {
-          const found = data.find(x => x['@type'] === 'Recipe' || (Array.isArray(x['@type']) && x['@type'].includes('Recipe')));
-          if (found) { recipe = found; break; }
-        } else if (data['@type'] === 'Recipe' || (Array.isArray(data['@type']) && data['@type'].includes('Recipe'))) {
-          recipe = data; break;
-        } else if (data['@graph']) {
-          const found = data['@graph'].find(x => x['@type'] === 'Recipe' || (Array.isArray(x['@type']) && x['@type'].includes('Recipe')));
-          if (found) { recipe = found; break; }
-        }
+        const found = findRecipeNode(data);
+        if (found) { recipe = found; break; }
       } catch (e) {}
     }
-    if (!recipe) throw new Error('На сторінці немає Recipe schema. Перевір що це посилання саме на рецепт.');
+    if (!recipe) throw new Error('На сторінці немає schema.org/Recipe. Сайт не публікує структуровані дані — використай ручне створення (+ кнопка).');
 
     const name = String(recipe.name || 'Без назви').trim();
     const nutr = recipe.nutrition || {};
@@ -4184,11 +4339,13 @@ async function importKlopotenkoRecipe(url) {
       servings,
       sourceUrl: url,
       sourceImage: typeof image === 'string' ? image : (image?.url || null),
-      source: 'klopotenko',
+      source: (() => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return 'web'; } })(),
       tags: [],
     };
 
-    if (!food.kcal) throw new Error('Рецепт не містить даних про калорійність — імпорт неможливий.');
+    // KБЖУ is optional — many sites omit it. Recipe is still useful: coverage
+    // analysis will recompute kcal from linked products later.
+    if (!food.kcal) food.kcal = 0;
 
     const key = foodKey(name);
     FOODS[key] = food;
@@ -4209,6 +4366,48 @@ async function importKlopotenkoRecipe(url) {
     });
   }
 }
+
+// ── MANUAL RECIPE CREATION ──────────────────────────────────────────────
+window.openManualRecipeModal = function() {
+  document.getElementById('mrName').value = '';
+  document.getElementById('mrIngs').value = '';
+  document.getElementById('mrServings').value = '2';
+  document.getElementById('mrImage').value = '';
+  document.getElementById('mrCategory').value = '';
+  document.getElementById('manualRecipeModal').classList.add('on');
+  setTimeout(() => document.getElementById('mrName').focus(), 120);
+};
+window.closeManualRecipeModal = function() {
+  document.getElementById('manualRecipeModal').classList.remove('on');
+};
+window.saveManualRecipe = async function() {
+  const name = document.getElementById('mrName').value.trim();
+  const ingsRaw = document.getElementById('mrIngs').value.trim();
+  if (!name) { showToast('Назва обовʼязкова', 'err'); return; }
+  if (!ingsRaw) { showToast('Додай хоча б один інгредієнт', 'err'); return; }
+  const ingredients = ingsRaw.split('\n').map(s => s.trim()).filter(Boolean);
+  const servings = parseInt(document.getElementById('mrServings').value) || null;
+  const image = document.getElementById('mrImage').value.trim() || null;
+  const category = document.getElementById('mrCategory').value.trim() || '';
+  const food = {
+    name, type: 'recipe',
+    kcal: 0, protein: 0, fat: 0, carbs: 0,
+    ingredients,
+    servings,
+    sourceUrl: null,
+    sourceImage: image,
+    source: 'manual',
+    category,
+    tags: [],
+  };
+  const key = foodKey(name);
+  FOODS[key] = food;
+  if (db) await set(ref(db, 'racion/foods/' + key), food);
+  closeManualRecipeModal();
+  showToast('Рецепт створено ✓');
+  renderRecipesView();
+  setTimeout(() => openPCard(key), 200);
+};
 
 // Tiny progress overlay helpers used by single-shot AI calls
 // (per-product nutrition fetch). The big plan generator still uses

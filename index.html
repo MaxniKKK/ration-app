@@ -214,12 +214,22 @@
       <!-- RECIPES (grouped by meal type) -->
       <div id="fd-recipes" style="display:none">
         <div class="dir-bar">
-          <button class="dir-add-btn" style="background:rgba(255,107,53,.08);color:var(--accent2);border:1.5px solid rgba(255,107,53,.25);flex:1" onclick="promptBulkImportKlopotenko()" title="Імпортувати базу рецептів klopotenko.com">📥 Імпорт бази klopotenko</button>
-          <button class="dir-add-btn" style="background:rgba(255,107,53,.08);color:var(--accent2);border:1.5px solid rgba(255,107,53,.25)" onclick="promptKlopotenkoImport()" title="Імпортувати один рецепт за URL">🍳 URL</button>
+          <button class="dir-add-btn" style="background:rgba(255,107,53,.08);color:var(--accent2);border:1.5px solid rgba(255,107,53,.25);flex:1" onclick="promptKlopotenkoImport()" title="Імпортувати один рецепт за URL з будь-якого сайту з schema.org/Recipe">🔗 За посиланням</button>
+          <button class="dir-add-btn" style="background:rgba(255,107,53,.08);color:var(--accent2);border:1.5px solid rgba(255,107,53,.25)" onclick="openManualRecipeModal()" title="Створити рецепт вручну">+ Вручну</button>
+          <button class="dir-add-btn" style="background:var(--card2);color:var(--muted);border:1.5px solid var(--border)" onclick="promptBulkImportKlopotenko()" title="Імпортувати базу рецептів klopotenko.com">📥 База</button>
         </div>
         <div class="recipe-cov-bar">
           <button onclick="runRecipeCoverageAnalysis()" title="Перевірити які рецепти ≥70% покриті продуктами в довіднику">🔬 Перевірити покриття</button>
           <button class="filter-toggle" id="recCovFilter" onclick="toggleRecipeWhitelistFilter()" title="Показати тільки whitelisted рецепти">✓ Лише whitelist</button>
+        </div>
+        <!-- MISSING INGREDIENTS PANEL — populated after coverage analysis -->
+        <div class="missing-ings-panel" id="missingIngsPanel" style="display:none">
+          <div class="mip-hdr">
+            <span>Відсутні інгредієнти</span>
+            <span class="mip-summary" id="mipSummary"></span>
+          </div>
+          <input class="mip-filter" id="mipFilter" placeholder="Фільтр..." oninput="filterMissingIngs()">
+          <div class="mip-list" id="mipList"></div>
         </div>
         <div class="recipes-list" id="recipesList"></div>
       </div>
@@ -406,6 +416,42 @@
         <div class="pe-footer">
           <button class="pe-del" onclick="dmResetToDefault()">↺ Скинути до профіля</button>
           <button class="pe-save" onclick="saveDayMeals()">☁️ Зберегти</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MANUAL RECIPE MODAL -->
+    <div class="pe-modal" id="manualRecipeModal" onclick="closeManualRecipeModal()">
+      <div class="pe-sheet" onclick="event.stopPropagation()">
+        <div class="pe-drag"></div>
+        <div class="pe-head">
+          <div class="pe-title">+ Створити рецепт</div>
+          <button class="pe-close" onclick="closeManualRecipeModal()">×</button>
+        </div>
+        <div class="pe-body">
+          <div class="pe-field">
+            <label class="pe-label">Назва *</label>
+            <input class="pe-input" id="mrName" placeholder="Наприклад: Овочеве рагу">
+          </div>
+          <div class="pe-field">
+            <label class="pe-label">Інгредієнти (по одному на рядок) *</label>
+            <textarea class="pe-input" id="mrIngs" rows="8" placeholder="500 г куряче філе&#10;200 г рис&#10;1 морква&#10;2 ст.л. олії"></textarea>
+          </div>
+          <div class="pe-field">
+            <label class="pe-label">Порцій</label>
+            <input class="pe-input" id="mrServings" type="number" value="2" min="1">
+          </div>
+          <div class="pe-field">
+            <label class="pe-label">Категорія</label>
+            <input class="pe-input" id="mrCategory" placeholder="Другі страви">
+          </div>
+          <div class="pe-field">
+            <label class="pe-label">URL зображення (опційно)</label>
+            <input class="pe-input" id="mrImage" placeholder="https://...">
+          </div>
+        </div>
+        <div class="pe-footer">
+          <button class="pe-save" onclick="saveManualRecipe()">☁️ Створити</button>
         </div>
       </div>
     </div>
