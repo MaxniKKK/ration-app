@@ -1492,43 +1492,58 @@ window.updateRecipeIngredientGrams = function(recipeKey, ingIdx, value) {
   }, 400);
 };
 
+// Single source of truth for recipe validation. Used by every write path
+// (explicit save, debounced auto-save, import, link/unlink, tag toggle).
+// Returns { errors: string[], shakeIds: Set<string> }.
+function validateRecipe(recipe) {
+  const errors = [];
+  const shakeIds = new Set();
+  if (!recipe || recipe.type !== 'recipe') return { errors, shakeIds };
+  if (!recipe.tags || !recipe.tags.length) {
+    errors.push('обери прийом їжі');
+    shakeIds.add('pcardTagsSection');
+  }
+  // Lazy-compute linkedIngredients if missing so validation always runs
+  if (Array.isArray(recipe.ingredients) && recipe.ingredients.length && !Array.isArray(recipe.linkedIngredients)) {
+    const products = Object.entries(FOODS)
+      .filter(([k, f]) => f && f.type !== 'recipe' && f.name)
+      .map(([k, f]) => ({ key: k, name: f.name }));
+    recipe.linkedIngredients = analyzeRecipeCoverage(recipe, products).linked;
+  }
+  if (Array.isArray(recipe.linkedIngredients)) {
+    const missing = recipe.linkedIngredients.find(l => l.kind === 'missing');
+    if (missing) {
+      errors.push(`привʼяжи "${missing.raw.slice(0, 30)}"`);
+      shakeIds.add('pcardIngsSection');
+    }
+    const noGrams = recipe.linkedIngredients.find(
+      l => l.kind === 'linked' && !l.optional && (!getIngredientGrams(l) || getIngredientGrams(l) <= 0)
+    );
+    if (noGrams) {
+      errors.push(`заповни грамовку "${(noGrams.productName || noGrams.raw).slice(0, 30)}"`);
+      shakeIds.add('pcardIngsSection');
+    }
+  }
+  return { errors, shakeIds };
+}
+
+// Persist a recipe to Firebase ONLY if it passes validation. Returns true on
+// success, false on validation failure (silent — caller decides UI feedback).
+async function persistRecipeIfValid(recipeKey) {
+  const recipe = FOODS[recipeKey];
+  if (!recipe) return false;
+  const { errors } = validateRecipe(recipe);
+  if (errors.length) return false;
+  if (db) await set(ref(db, 'racion/foods/' + recipeKey), recipe);
+  return true;
+}
+
 // Explicit save button — flushes any pending debounced write immediately,
 // shows visible button feedback, then closes the product card.
 window.saveRecipeNow = async function(recipeKey) {
   const recipe = FOODS[recipeKey];
   if (!recipe) return;
-  // ── Collect all validation errors at once, shake every flagged section ──
-  const errors = [];
-  const shakeIds = new Set();
-
-  if (recipe.type === 'recipe') {
-    if (!recipe.tags || !recipe.tags.length) {
-      errors.push('обери прийом їжі');
-      shakeIds.add('pcardTagsSection');
-    }
-    // Lazy-compute linkedIngredients if missing so validation always runs
-    if (Array.isArray(recipe.ingredients) && recipe.ingredients.length && !Array.isArray(recipe.linkedIngredients)) {
-      const products = Object.entries(FOODS)
-        .filter(([k, f]) => f && f.type !== 'recipe' && f.name)
-        .map(([k, f]) => ({ key: k, name: f.name }));
-      recipe.linkedIngredients = analyzeRecipeCoverage(recipe, products).linked;
-    }
-    if (Array.isArray(recipe.linkedIngredients)) {
-      const missing = recipe.linkedIngredients.find(l => l.kind === 'missing');
-      if (missing) {
-        errors.push(`привʼяжи "${missing.raw.slice(0, 30)}"`);
-        shakeIds.add('pcardIngsSection');
-      }
-      const noGrams = recipe.linkedIngredients.find(
-        l => l.kind === 'linked' && !l.optional && (!getIngredientGrams(l) || getIngredientGrams(l) <= 0)
-      );
-      if (noGrams) {
-        errors.push(`заповни грамовку "${(noGrams.productName || noGrams.raw).slice(0, 30)}"`);
-        shakeIds.add('pcardIngsSection');
-      }
-    }
-  }
-
+  const { errors, shakeIds } = validateRecipe(recipe);
   if (errors.length) {
     showToast(errors.join(' · '), 'err');
     // Shake every flagged section + the sheet (so it's visible regardless
@@ -1548,6 +1563,7 @@ window.saveRecipeNow = async function(recipeKey) {
   clearTimeout(_gramsUpdateTimer);
   _gramsUpdateTimer = null;
   try {
+    delete recipe._unsaved; // commit draft → permanent record
     if (db) await set(ref(db, 'racion/foods/' + recipeKey), recipe);
     _markRecipeClean();
     if (btn) btn.innerHTML = '✓ Збережено';
@@ -1756,6 +1772,12 @@ window.togglePCardTag = function(key, tag) {
 };
 
 window.closePCard = function() {
+  // Drop unsaved drafts (imported / manually created but never saved)
+  if (_pcardKey && FOODS[_pcardKey]?._unsaved) {
+    delete FOODS[_pcardKey];
+    refreshFoodsViews();
+    showToast('Чернетку відкинуто');
+  }
   document.getElementById('pcardModal').classList.remove('on');
   _pcardKey = null;
   _pcardEditingIngs = false;
@@ -5106,12 +5128,10 @@ async function importRecipeFromUrl(url) {
     if (!food.kcal) food.kcal = 0;
 
     const key = foodKey(name);
+    food._unsaved = true; // local-only until user presses Save in pcard
     FOODS[key] = food;
-    if (db) await set(ref(db, 'racion/foods/' + key), food);
-
     hideAIBusy();
-    showToast('Рецепт імпортовано ✓');
-    renderFoodsDir();
+    showToast('Рецепт завантажено — перевір і збережи');
     setTimeout(() => openPCard(key), 200);
   } catch (e) {
     hideAIBusy();
@@ -5179,11 +5199,10 @@ window.saveManualRecipe = async function() {
     tags: [..._mrSelectedTags],
   };
   const key = foodKey(name);
+  food._unsaved = true; // local-only until user presses Save in pcard
   FOODS[key] = food;
-  if (db) await set(ref(db, 'racion/foods/' + key), food);
   closeManualRecipeModal();
-  showToast('Рецепт створено ✓');
-  renderRecipesView();
+  showToast('Чернетка створена — перевір і збережи');
   setTimeout(() => openPCard(key), 200);
 };
 
