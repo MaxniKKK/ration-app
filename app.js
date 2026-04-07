@@ -1282,6 +1282,7 @@ window.openPCard = function(key) {
   const food = FOODS[key];
   if (!food) return;
   _pcardKey = key;
+  _recipeDirty = false;
 
   // Image — silpoIcon is just the filename (UUID.png), need to build full URL
   const imgWrap = document.getElementById('pcardImgWrap');
@@ -1445,7 +1446,12 @@ function pcardActionsHtml(food, key) {
   const silpoLinkBtn = isRecipe
     ? ''
     : `<button class="pcard-edit-btn" title="Привʼязати до продукту в Сільпо" onclick="openRemap('${key}')">🔗</button>`;
+  // Recipes get a prominent save button for grams/links/name edits
+  const saveBtn = isRecipe
+    ? `<button class="pcard-save-btn" id="pcardSaveBtn" title="Зберегти зміни" onclick="event.stopPropagation();saveRecipeNow('${key}')">💾 Зберегти</button>`
+    : '';
   return `${openBtn}
+    ${saveBtn}
     <button class="pcard-edit-btn" title="Заповнити КБЖУ через AI" onclick="applyAIFillFood('${key}')">🤖</button>
     ${silpoLinkBtn}
     <button class="pcard-edit-btn" title="Редагувати КБЖУ" onclick="closePCard();showScreen('search');showFdTab('dir');startEditFood('${key}')">✏️</button>
@@ -1456,6 +1462,17 @@ function pcardActionsHtml(food, key) {
 // Firebase + recomputes recipe КБЖУ. Debounced via plain re-write — input
 // fires per keystroke but Firebase write is cheap.
 let _gramsUpdateTimer = null;
+let _recipeDirty = false;
+function _markRecipeDirty() {
+  _recipeDirty = true;
+  const btn = document.getElementById('pcardSaveBtn');
+  if (btn) btn.classList.add('dirty');
+}
+function _markRecipeClean() {
+  _recipeDirty = false;
+  const btn = document.getElementById('pcardSaveBtn');
+  if (btn) btn.classList.remove('dirty');
+}
 window.updateRecipeIngredientGrams = function(recipeKey, ingIdx, value) {
   const recipe = FOODS[recipeKey];
   if (!recipe || !Array.isArray(recipe.linkedIngredients)) return;
@@ -1467,10 +1484,28 @@ window.updateRecipeIngredientGrams = function(recipeKey, ingIdx, value) {
   // Live-update the visible kcal in the modal header
   const kcalEl = document.getElementById('pcardKcal');
   if (kcalEl) kcalEl.textContent = recipe.kcal != null ? Math.round(recipe.kcal) : '—';
+  _markRecipeDirty();
   clearTimeout(_gramsUpdateTimer);
   _gramsUpdateTimer = setTimeout(() => {
-    if (db) set(ref(db, 'racion/foods/' + recipeKey), recipe).catch(() => {});
+    if (db) set(ref(db, 'racion/foods/' + recipeKey), recipe)
+      .then(() => _markRecipeClean()).catch(() => {});
   }, 400);
+};
+
+// Explicit save button — flushes any pending debounced write immediately
+// and shows a toast confirming the recipe is saved.
+window.saveRecipeNow = async function(recipeKey) {
+  const recipe = FOODS[recipeKey];
+  if (!recipe) return;
+  clearTimeout(_gramsUpdateTimer);
+  _gramsUpdateTimer = null;
+  try {
+    if (db) await set(ref(db, 'racion/foods/' + recipeKey), recipe);
+    _markRecipeClean();
+    showToast('Рецепт збережено ✓');
+  } catch (e) {
+    showToast('Помилка збереження: ' + e.message, 'err');
+  }
 };
 
 // Rename a recipe (or any FOODS entry). Asks for the new name via cfModal,
