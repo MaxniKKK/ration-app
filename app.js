@@ -204,12 +204,18 @@ const DEFAULT_UNITS_SEED = [
 
 let UNITS = [...DEFAULT_UNITS_SEED];
 
-// Returns { g, unit } matched by name stem, or null if no rule matches.
+// Returns { g, unit } matched by name stem (or any alias), or null.
 // This is the SEED — used once per food when first added to the directory.
 function matchPieceUnitByName(name) {
   if (!name) return null;
   const n = String(name).toLowerCase();
-  return PIECE_UNITS.find(p => n.includes(p.stem)) || null;
+  return PIECE_UNITS.find(p => {
+    if (p.stem && n.includes(p.stem)) return true;
+    if (Array.isArray(p.aliases)) {
+      for (const a of p.aliases) if (a && n.includes(String(a).toLowerCase())) return true;
+    }
+    return false;
+  }) || null;
 }
 
 // Auto-fill pieceWeight/pieceUnit on a FOODS entry if missing and a name
@@ -4612,15 +4618,41 @@ function renderPieceUnitsDict() {
       <button onclick="dictAddPiece()">+</button>
     </div>
     ${PIECE_UNITS.map((p, i) => `
-      <div class="dict-row">
-        <input value="${escapeHtml(p.stem)}"  oninput="dictUpdatePiece(${i},'stem',this.value)" style="flex:1">
-        <input value="${p.g}" type="number"   oninput="dictUpdatePiece(${i},'g',parseFloat(this.value)||0)" style="width:60px">
-        <input value="${escapeHtml(p.unit)}"  oninput="dictUpdatePiece(${i},'unit',this.value)" style="width:80px">
-        <button onclick="dictRemovePiece(${i})" class="dict-row-del">×</button>
+      <div class="dict-unit-block">
+        <div class="dict-row">
+          <input value="${escapeHtml(p.stem)}"  oninput="dictUpdatePiece(${i},'stem',this.value)" style="flex:1">
+          <input value="${p.g}" type="number"   oninput="dictUpdatePiece(${i},'g',parseFloat(this.value)||0)" style="width:60px">
+          <input value="${escapeHtml(p.unit)}"  oninput="dictUpdatePiece(${i},'unit',this.value)" style="width:80px">
+          <button onclick="dictRemovePiece(${i})" class="dict-row-del">×</button>
+        </div>
+        <div class="dict-chips">
+          ${(p.aliases || []).map((a, ai) => `
+            <span class="dict-chip">
+              ${escapeHtml(a)}
+              <button onclick="dictRemovePieceAlias(${i},${ai})" title="Видалити">×</button>
+            </span>
+          `).join('')}
+          <input class="dict-chip-input" placeholder="+ alias-stem" onkeydown="if(event.key==='Enter'){dictAddPieceAlias(${i},this.value);this.value='';}" onblur="if(this.value.trim()){dictAddPieceAlias(${i},this.value);this.value='';}">
+        </div>
       </div>
     `).join('')}
   `;
 }
+window.dictAddPieceAlias = function(i, raw) {
+  const v = (raw || '').trim().toLowerCase();
+  if (!v || !PIECE_UNITS[i]) return;
+  if (!Array.isArray(PIECE_UNITS[i].aliases)) PIECE_UNITS[i].aliases = [];
+  if (PIECE_UNITS[i].aliases.includes(v)) return;
+  PIECE_UNITS[i].aliases.push(v);
+  persistPieceUnits();
+  renderDictionariesView();
+};
+window.dictRemovePieceAlias = function(i, ai) {
+  if (!PIECE_UNITS[i] || !Array.isArray(PIECE_UNITS[i].aliases)) return;
+  PIECE_UNITS[i].aliases.splice(ai, 1);
+  persistPieceUnits();
+  renderDictionariesView();
+};
 window.dictUpdatePiece = function(i, field, val) {
   if (!PIECE_UNITS[i]) return;
   PIECE_UNITS[i][field] = val;
