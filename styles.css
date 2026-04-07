@@ -534,6 +534,10 @@ body{background:var(--bg);color:var(--text);font-family:'Golos Text',sans-serif;
 .pcard-ing-grams:focus{border-color:var(--accent);}
 .pcard-ing-grams-unit{font-size:10px;color:var(--muted);margin-left:2px;}
 
+/* Recipe category empty (zero count) — slightly muted, not collapsible */
+.recipe-cat.empty .recipe-cat-hdr{cursor:default;opacity:.55;}
+.recipe-cat.empty .recipe-cat-meta{color:var(--muted);}
+
 /* DICTIONARIES VIEW */
 .dicts-list{display:flex;flex-direction:column;gap:8px;padding:10px 14px 90px;}
 .dict-card{background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden;}

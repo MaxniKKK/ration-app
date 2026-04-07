@@ -5133,7 +5133,8 @@ function groupRecipesByCategory() {
     }
   }
 
-  return buckets.filter(b => b.recipes.length);
+  // Always return all buckets, even empty ones — caller decides display.
+  return buckets;
 }
 
 // Build the small coverage badge HTML for a recipe item.
@@ -5149,14 +5150,22 @@ window.renderRecipesView = function() {
   const list = document.getElementById('recipesList');
   if (!list) return;
   _recipeBuckets = groupRecipesByCategory();
-  if (!_recipeBuckets.length) {
-    list.innerHTML = `<div class="dir-empty">Немає рецептів у довіднику.<br>Натисни <strong>📥 Імпорт бази klopotenko</strong> вище.</div>`;
-    return;
+
+  // Show/hide the coverage toolbar — it only matters when at least one
+  // recipe has incomplete coverage. If everything is 100% mapped, hide it.
+  const covBar = document.querySelector('.recipe-cov-bar');
+  if (covBar) {
+    const anyIncomplete = Object.values(FOODS).some(f =>
+      f && f.type === 'recipe' && f._coverage && f._coverage.total > 0 && f._coverage.ratio < 1
+    );
+    const anyRecipes = Object.values(FOODS).some(f => f && f.type === 'recipe');
+    covBar.style.display = (anyRecipes && anyIncomplete) ? '' : 'none';
   }
+
   list.innerHTML = _recipeBuckets.map((grp, idx) => {
     const noNutr = grp.recipes.filter(r => !r.food.kcal).length;
     const isExpanded = _expandedRecipeCats.has(grp.name);
-    const expandedList = isExpanded
+    const expandedList = isExpanded && grp.recipes.length
       ? `<div class="recipe-cat-list">
           ${grp.recipes.slice(0, 100).map(r => `
             <div class="recipe-item">
@@ -5171,19 +5180,19 @@ window.renderRecipesView = function() {
           ${grp.recipes.length > 100 ? `<div class="recipe-item-more">... і ще ${grp.recipes.length - 100} рецептів</div>` : ''}
         </div>`
       : '';
-    return `<div class="recipe-cat">
-      <div class="recipe-cat-hdr" onclick="toggleRecipeCat(${idx})">
+    const headerClickable = grp.recipes.length > 0;
+    return `<div class="recipe-cat${grp.recipes.length === 0 ? ' empty' : ''}">
+      <div class="recipe-cat-hdr"${headerClickable ? ` onclick="toggleRecipeCat(${idx})"` : ''}>
         <span class="recipe-cat-icon">${grp.icon}</span>
         <div class="recipe-cat-info">
           <div class="recipe-cat-name">${escapeHtml(grp.name)}</div>
           <div class="recipe-cat-meta">${grp.recipes.length} рецептів${noNutr ? ` · <span class="nonutr">${noNutr} без КБЖУ</span>` : ''}</div>
         </div>
-        <span class="recipe-cat-arr">${isExpanded ? '▼' : '▶'}</span>
+        ${headerClickable ? `<span class="recipe-cat-arr">${isExpanded ? '▼' : '▶'}</span>` : ''}
       </div>
-      <div class="recipe-cat-actions">
-        ${noNutr ? `<button class="compute-btn" onclick="event.stopPropagation();promptComputeCategoryRecipes(${idx})">🤖 КБЖУ (${noNutr})</button>` : ''}
-        <button class="delete-btn" onclick="event.stopPropagation();confirmDeleteRecipeCategory(${idx})">🗑 Видалити всі</button>
-      </div>
+      ${noNutr ? `<div class="recipe-cat-actions">
+        <button class="compute-btn" onclick="event.stopPropagation();promptComputeCategoryRecipes(${idx})">🤖 КБЖУ (${noNutr})</button>
+      </div>` : ''}
       ${expandedList}
     </div>`;
   }).join('');
