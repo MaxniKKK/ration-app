@@ -1505,23 +1505,20 @@ window.openPCard = function(key) {
               <button class="pcard-ing-link-btn" onclick="event.stopPropagation();unlinkRecipeIngredient('${key}',${idx})" title="Відвʼязати">×</button>
             </li>`;
           }
-          if (l.kind === 'staple') {
-            return `<li>
-              <span class="pcard-ing-icon staple" title="Базовий продукт (вода / сіль / цукор)">○</span>
-              <span class="pcard-ing-raw" style="color:var(--muted)">${escapeHtml(l.raw)}</span>
-            </li>`;
-          }
-          if (l.kind === 'optional') {
-            return `<li>
-              <span class="pcard-ing-icon optional" title="Опціональний інгредієнт (спеція, олія, тощо). Не блокує whitelist, але можна привʼязати">◐</span>
-              <span class="pcard-ing-raw">${escapeHtml(l.raw)}</span>
-              <button class="pcard-ing-link-btn" onclick="event.stopPropagation();openManualLinkIngredient('${key}',${idx})">+ привʼязати</button>
-            </li>`;
-          }
+          // Staple / optional / missing all share the same action affordances:
+          // user can always link to a product or add a new one. Only the icon
+          // colour differs to hint at automatic classification.
+          const iconCls = l.kind === 'staple' ? 'staple' : (l.kind === 'optional' ? 'optional' : 'missing');
+          const iconChar = l.kind === 'staple' ? '○' : (l.kind === 'optional' ? '◐' : '✕');
+          const iconTitle = l.kind === 'staple'
+            ? 'Базовий продукт — авто-пропущено, але можна привʼязати'
+            : (l.kind === 'optional' ? 'Опціональний — не блокує whitelist' : 'Немає в довіднику');
+          const parsedLabel = (parseIngredientName(l.raw) || l.raw).replace(/'/g,'&#39;');
           return `<li>
-            <span class="pcard-ing-icon missing" title="Немає в довіднику продуктів">✕</span>
+            <span class="pcard-ing-icon ${iconCls}" title="${iconTitle}">${iconChar}</span>
             <span class="pcard-ing-raw">${escapeHtml(l.raw)}</span>
-            <button class="pcard-ing-link-btn" onclick="event.stopPropagation();openManualLinkIngredient('${key}',${idx})">+ привʼязати</button>
+            <button class="pcard-ing-link-btn" onclick="event.stopPropagation();openManualLinkIngredient('${key}',${idx})" title="Привʼязати до існуючого продукту">🔗</button>
+            <button class="pcard-ing-link-btn" onclick="event.stopPropagation();openAddProductModal('${parsedLabel}','')" title="Додати як новий продукт">+</button>
           </li>`;
         }).join('')}
       </ul>
@@ -3716,7 +3713,15 @@ function isStapleLike(parsedName) {
   const all = stemsOf(parsedName);
   if (!all.size) return false;
   const significant = _stripModifiers(all);
-  if (!significant.length) return true;
+  if (!significant.length) {
+    // All stems were stripped as modifiers (e.g. 'кукурудзяна олія' →
+    // [кукуруд, олі] → strip 'кукуруд' → [олі]). If NOTHING is left,
+    // require at least one of the ORIGINAL stems to be a real staple
+    // (otherwise 'кукурудза' alone would falsely become a staple just
+    // because 'кукуруд' is a modifier of oil).
+    for (const s of all) if (STAPLES.has(s)) return true;
+    return false;
+  }
   for (const s of significant) {
     if (!STAPLES.has(s)) return false;
   }
