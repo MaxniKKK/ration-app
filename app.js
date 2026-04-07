@@ -1509,11 +1509,18 @@ window.saveRecipeNow = async function(recipeKey) {
   if (recipe.type === 'recipe' && Array.isArray(recipe.linkedIngredients)) {
     const ingsEl = document.getElementById('pcardIngsSection');
     const shakeIngs = () => {
-      // Shake the inner list — the section itself sometimes lives inside
-      // an overflow:hidden ancestor that clips translateX.
-      shakeElement(ingsEl?.querySelector('.pcard-ings-list') || ingsEl);
-      // Also scroll into view so the user sees the shake
+      // Scroll first so the section is in view, THEN shake.
       ingsEl?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+      // Shake the whole pcard sheet — guaranteed to be visible regardless
+      // of inner overflow clipping. Then flash a red border on the ings list.
+      const sheet = document.querySelector('#pcardModal .pcard-sheet');
+      shakeElement(sheet);
+      const list = ingsEl?.querySelector('.pcard-ings-list');
+      if (list) {
+        list.style.transition = 'box-shadow .25s';
+        list.style.boxShadow = '0 0 0 2px #ef4444';
+        setTimeout(() => { list.style.boxShadow = ''; }, 1200);
+      }
     };
     const missing = recipe.linkedIngredients.find(l => l.kind === 'missing');
     if (missing) {
