@@ -136,44 +136,6 @@ const DEFAULT_FOOD_CATEGORIES_SEED = {
 // Live map — populated from Firebase on init.
 let FOOD_CATEGORIES = { ...DEFAULT_FOOD_CATEGORIES_SEED };
 
-// ── ПУЛ ІНГРЕДІЄНТІВ для динамічної генерації плану ─────────────────────
-// Default seed grouped by category. Loaded into INGREDIENT_POOL on init,
-// persisted to racion/ingredientPool, then editable from Firebase.
-// Each entry: n=name, k=kcal/100g, p=protein, f=fat, c=carbs,
-// def=default serving (g), min/max=portion bounds.
-const DEFAULT_INGREDIENT_POOL_SEED = {
-  protein: [
-    { n: 'Куряче філе',          k: 110, p: 23,  f: 1.2, c: 0,   def: 150, min: 80,  max: 250 },
-    { n: 'Яйця курячі',          k: 155, p: 13,  f: 11,  c: 1.1, def: 110, min: 55,  max: 220 },
-    { n: 'Тунець консервований', k: 116, p: 26,  f: 1,   c: 0,   def: 150, min: 80,  max: 250 },
-  ],
-  dairy: [
-    { n: 'Йогурт грецький', k: 60, p: 10, f: 0.4, c: 4, def: 150, min: 100, max: 250 },
-    { n: 'Кефір 1%',        k: 40, p: 3,  f: 1,   c: 4, def: 250, min: 150, max: 400 },
-  ],
-  carb: [
-    { n: 'Гречка',   k: 343, p: 13, f: 3.4, c: 62, def: 100, min: 50,  max: 180 },
-    { n: 'Рис',      k: 350, p: 7,  f: 1,   c: 78, def: 100, min: 50,  max: 180 },
-    { n: 'Картопля', k: 77,  p: 2,  f: 0.1, c: 17, def: 200, min: 100, max: 350 },
-  ],
-  fruit: [
-    { n: 'Банан',    k: 89, p: 1.1, f: 0.3, c: 23, def: 120, min: 80,  max: 240 },
-    { n: 'Яблука',   k: 52, p: 0.3, f: 0.2, c: 14, def: 150, min: 100, max: 250 },
-    { n: 'Апельсин', k: 47, p: 0.9, f: 0.1, c: 12, def: 150, min: 100, max: 250 },
-  ],
-  veggie: [
-    { n: 'Огірок',  k: 16, p: 0.7, f: 0.1, c: 3.6, def: 100, min: 50, max: 200 },
-    { n: 'Помідор', k: 18, p: 0.9, f: 0.2, c: 3.9, def: 100, min: 50, max: 200 },
-  ],
-};
-
-// Live pool — populated from Firebase on init, deep-cloned from seed by default.
-let INGREDIENT_POOL = JSON.parse(JSON.stringify(DEFAULT_INGREDIENT_POOL_SEED));
-
-// Categories that scale freely with meal kcal target (high-density "main" food).
-// Other categories (dairy/fruit/veggie) stay near their default portion.
-const SCALABLE_CATEGORIES = new Set(['protein', 'carb']);
-
 // ── PIECE-UNIT INGREDIENTS ──────────────────────────────────────────────
 // Default seed for products that are practical to measure in whole pieces.
 // Loaded into PIECE_UNITS at startup; persisted to racion/pieceUnits on
@@ -269,57 +231,15 @@ function getFoodPieceInfo(food) {
   return matchPieceUnitByName(food.name);
 }
 
-// Lookup an ingredient by name across all categories
-function findInPool(name) {
-  for (const cat of Object.keys(INGREDIENT_POOL)) {
-    const found = INGREDIENT_POOL[cat].find(i => i.n === name);
-    if (found) return found;
-  }
-  return null;
-}
-
-// Ensure FOODS has an entry for `name`. If missing:
-//   - if name is in INGREDIENT_POOL → seed with built-in nutrition
-//   - otherwise → create empty stub with 0 КБЖУ
-// Either way the entry exists afterwards, so enrichFoodsFromSilpo will
-// pick it up and try to fetch real nutrition from Silpo.
+// Ensure FOODS has an entry for `name`. Creates empty stub if missing
+// (enrichFoodsFromSilpo / manual edit fills КБЖУ later).
 function ensureFoodInDirectory(name) {
   const key = foodKey(name);
   if (FOODS[key]) return FOODS[key];
-  const known = findInPool(name);
-  if (known) {
-    FOODS[key] = {
-      name,
-      kcal:    known.k,
-      protein: known.p ?? 0,
-      fat:     known.f ?? 0,
-      carbs:   known.c ?? 0,
-      source: 'auto',
-    };
-  } else {
-    // Unknown ingredient (e.g. user typed it manually). Create empty stub —
-    // enrichFoodsFromSilpo will try to populate КБЖУ from Silpo on next pass.
-    FOODS[key] = {
-      name,
-      kcal: 0, protein: 0, fat: 0, carbs: 0,
-      source: 'auto',
-    };
-  }
+  FOODS[key] = { name, kcal: 0, protein: 0, fat: 0, carbs: 0, source: 'auto' };
   seedFoodPieceUnit(FOODS[key]);
   if (db) set(ref(db, 'racion/foods/' + key), FOODS[key]).catch(() => {});
   return FOODS[key];
-}
-
-// Get best available nutrition for an ingredient name. Prefers FOODS
-// (which may have Silpo-accurate data after enrichment); falls back to POOL.
-function getIngredientNutr(name) {
-  const food = FOODS[foodKey(name)];
-  if (food && food.kcal > 0) {
-    return { kcal: food.kcal, protein: food.protein || 0, fat: food.fat || 0, carbs: food.carbs || 0 };
-  }
-  const pool = findInPool(name);
-  if (pool) return { kcal: pool.k, protein: pool.p || 0, fat: pool.f || 0, carbs: pool.c || 0 };
-  return null;
 }
 
 // Default kcal share per meal type (normalized at use site if slot count differs).
@@ -332,14 +252,6 @@ const DEFAULT_MEAL_KCAL_SHARE = {
 };
 let MEAL_KCAL_SHARE = { ...DEFAULT_MEAL_KCAL_SHARE };
 
-// Які категорії інгредієнтів кладемо в кожен тип прийому
-const MEAL_RECIPE = {
-  breakfast: ['protein', 'dairy', 'fruit'],
-  lunch:     ['protein', 'carb', 'veggie', 'veggie'],
-  dinner:    ['protein', 'carb', 'veggie'],
-  snack:     ['dairy', 'fruit'],
-};
-
 // Класифікує слот по його назві (UA/EN). Все що не впізнане → snack.
 function classifyMealSlot(slotName) {
   const n = String(slotName || '').toLowerCase();
@@ -348,126 +260,6 @@ function classifyMealSlot(slotName) {
   if (/вечер|dinner/.test(n))       return 'dinner';
   return 'snack';
 }
-
-// Беремо інгредієнт з категорії з ротацією по дню+слоту, оминаючи forbidden.
-function pickIngredient(category, day, offset, forbidden) {
-  const list = INGREDIENT_POOL[category] || [];
-  if (!list.length) return null;
-  const start = ((day * 3 + offset) % list.length + list.length) % list.length;
-  for (let i = 0; i < list.length; i++) {
-    const item = list[(start + i) % list.length];
-    const blocked = forbidden.some(f =>
-      item.n.toLowerCase().includes(String(f).toLowerCase())
-    );
-    if (!blocked) return item;
-  }
-  return null; // everything in this category is forbidden for this person
-}
-
-// Генерує тиждень для однієї людини на основі її профіля.
-// Враховує: targets, forbidden, meal slots (з override дня якщо є).
-// Не перетирає override-меню дня — використовує його для розкладу прийомів.
-function generateMenuForPerson(pid) {
-  const targets   = getPersonTargets(pid);
-  const forbidden = getPersonForbidden(pid);
-  const dailyKcal = targets.kcal || 2000;
-  const personMeals = getPersonMeals(pid);
-
-  if (!MENU[pid]) MENU[pid] = {};
-
-  for (const day of [0, 1, 2, 3, 4, 5, 6]) {
-    // Use day-specific meals if overridden, otherwise person default
-    const slots = MENU[pid][day]?.meals || personMeals;
-    if (!slots || !slots.length) {
-      MENU[pid][day] = { totals: { ...targets } };
-      continue;
-    }
-
-    // Compute kcal share per slot, normalized so they sum to 1.0
-    const types = slots.map(s => classifyMealSlot(s.name));
-    const rawShares = types.map(t => MEAL_KCAL_SHARE[t] || 0.1);
-    const totalShare = rawShares.reduce((s, x) => s + x, 0) || 1;
-    const slotKcals = rawShares.map(s => Math.round(dailyKcal * s / totalShare));
-
-    // Build new day, preserving meals override if present
-    const newDay = { totals: { ...targets } };
-    if (MENU[pid][day]?.meals) newDay.meals = MENU[pid][day].meals;
-
-    slots.forEach((slot, idx) => {
-      const type = types[idx];
-      const recipe = MEAL_RECIPE[type] || MEAL_RECIPE.snack;
-      const mealKcal = slotKcals[idx];
-
-      // Pick ingredients for this meal
-      const picks = [];
-      recipe.forEach((cat, ci) => {
-        const ing = pickIngredient(cat, day, idx * 5 + ci, forbidden);
-        if (!ing) return;
-        ensureFoodInDirectory(ing.n);
-        // Use FOODS data if present (more accurate after Silpo enrichment),
-        // otherwise fall back to POOL.
-        const nutr = getIngredientNutr(ing.n) || { kcal: ing.k, protein: 0, fat: 0, carbs: 0 };
-        picks.push({ ing, cat, nutr });
-      });
-
-      // Step 1: assign default portions (realistic single servings).
-      // Use POOL bounds when available; otherwise fall back to a 100g default.
-      const portions = picks.map(pk => pk.ing.def || 100);
-
-      // Step 2: scale only "main" categories (protein/carb) to hit the meal's
-      // kcal target. Sides (dairy/fruit/veggie) stay at default — that's what
-      // prevents 1.4 kg of tomatoes for dinner.
-      const mainIdx = picks.map((p, i) => SCALABLE_CATEGORIES.has(p.cat) ? i : -1).filter(i => i >= 0);
-      if (mainIdx.length) {
-        // Compute kcal contributed by sides (fixed) and current main contribution
-        let sideKcal = 0, mainKcal = 0;
-        picks.forEach((p, i) => {
-          const k = portions[i] * (p.nutr.kcal || p.ing.k) / 100;
-          if (mainIdx.includes(i)) mainKcal += k; else sideKcal += k;
-        });
-        const targetMainKcal = Math.max(0, mealKcal - sideKcal);
-        // Distribute targetMainKcal across main items proportionally to their
-        // current share, then clamp each to [min, max].
-        if (mainKcal > 0) {
-          const scale = targetMainKcal / mainKcal;
-          for (const i of mainIdx) {
-            const ing = picks[i].ing;
-            const k = (picks[i].nutr.kcal || ing.k);
-            let g = portions[i] * scale;
-            // Clamp to realistic bounds; snap to nearest 10g; absolute floor 20g
-            g = Math.max(ing.min || 30, Math.min(ing.max || 400, g));
-            portions[i] = Math.max(20, Math.round(g / 10) * 10);
-          }
-        }
-      }
-
-      // Step 3: build items list with embedded nutrition + Silpo link if any
-      const items = picks.map((pk, i) => {
-        const item = {
-          n: pk.ing.n,
-          g: `${portions[i]}г`,
-          kcal_per_100:    pk.nutr.kcal,
-          protein_per_100: pk.nutr.protein,
-          fat_per_100:     pk.nutr.fat,
-          carbs_per_100:   pk.nutr.carbs,
-        };
-        const food = FOODS[foodKey(pk.ing.n)];
-        if (food?.silpoSlug) {
-          item.silpoSlug       = food.silpoSlug;
-          item.silpoPrice      = food.silpoPrice      ?? null;
-          item.silpoPriceRatio = food.silpoPriceRatio ?? null;
-        }
-        return item;
-      });
-
-      newDay[slot.key] = { kcal: mealKcal, items };
-    });
-
-    MENU[pid][day] = newDay;
-  }
-}
-
-
 
 // ═══════════════════════════════
 // STATE
@@ -609,16 +401,6 @@ function initFirebase(cfg) {
       if (val) DIARY = val;
     });
     // Load foods cache
-    // Ingredient pool — category-grouped fallback ingredients for the POOL generator
-    onValue(ref(db, 'racion/ingredientPool'), (snap) => {
-      const obj = snap.val();
-      if (obj && typeof obj === 'object' && Object.keys(obj).length) {
-        INGREDIENT_POOL = obj;
-      } else {
-        INGREDIENT_POOL = JSON.parse(JSON.stringify(DEFAULT_INGREDIENT_POOL_SEED));
-        set(ref(db, 'racion/ingredientPool'), INGREDIENT_POOL).catch(() => {});
-      }
-    });
     // Silpo category rules — name → sectionSlug substrings, editable
     onValue(ref(db, 'racion/foodCategoryRules'), (snap) => {
       const obj = snap.val();
@@ -2075,9 +1857,6 @@ window.saveFoodItem = function(originalKey) {
       source: 'silpo',
       ..._newFoodSilpoData,
     };
-  } else if (originalKey === '__new__' && findInPool(name)) {
-    // New entry where AI prefill was used (or matches POOL by name)
-    FOODS[newKey] = { name, kcal, protein, fat, carbs, source: 'auto' };
   } else {
     // Existing entry edited manually → drops any Silpo link
     FOODS[newKey] = { name, kcal, protein, fat, carbs, source: 'manual' };
@@ -2293,11 +2072,17 @@ function pickBestSilpo(items, name) {
 }
 
 function applyPlanTemplate() {
-  // Generate the entire week for every person from their profile
-  // (targets, forbidden, meal slots). Day-level meals overrides are
-  // preserved by generateMenuForPerson.
+  // Seed an empty MENU skeleton for every person — totals only, no items.
+  // The recipe-based generator (generateMenuLocally / generateMenuViaAI) is
+  // the only path that fills meals now; until the user runs it, slots are empty.
   for (const pid of getPeopleIds()) {
-    generateMenuForPerson(pid);
+    if (!MENU[pid]) MENU[pid] = {};
+    const targets = getPersonTargets(pid);
+    for (const day of [0, 1, 2, 3, 4, 5, 6]) {
+      // Preserve any existing day data (e.g. meals override or already-generated)
+      if (MENU[pid][day]) continue;
+      MENU[pid][day] = { totals: { ...targets } };
+    }
   }
 }
 
@@ -5353,13 +5138,9 @@ const CAT_PORTION = {
   veggie:  { def: 100, min: 50,  max: 200 },
 };
 
-// Resolve portion bounds for a food. Tries POOL by name match first
-// (per-product limits like "eggs max 220g"), falls back to CAT_PORTION.
+// Resolve portion bounds for a food category. Per-product overrides are
+// stored on the FOODS record itself if needed.
 function findPortionBounds(name, cat) {
-  const pool = findInPool(name);
-  if (pool && pool.def != null) {
-    return { def: pool.def, min: pool.min || 30, max: pool.max || 300 };
-  }
   return CAT_PORTION[cat] || { def: 100, min: 30, max: 300 };
 }
 
