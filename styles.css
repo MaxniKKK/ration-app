@@ -529,6 +529,11 @@ body{background:var(--bg);color:var(--text);font-family:'Golos Text',sans-serif;
 .ai-key-status{font-size:10px;color:var(--muted);margin-top:7px;}
 .ai-key-status.ok{color:var(--accent);}
 
+/* PCARD ingredient grams override */
+.pcard-ing-grams{width:54px;background:#0d0d0d;border:1px solid var(--border);border-radius:6px;padding:3px 6px;color:var(--accent);font-family:'Golos Text',sans-serif;font-size:11px;text-align:right;outline:none;margin-left:4px;}
+.pcard-ing-grams:focus{border-color:var(--accent);}
+.pcard-ing-grams-unit{font-size:10px;color:var(--muted);margin-left:2px;}
+
 /* PCARD recipe-name edit button */
 .pcard-name-edit{background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;padding:0 4px;vertical-align:middle;}
 .pcard-name-edit:hover{color:var(--accent);}

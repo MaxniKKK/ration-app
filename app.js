@@ -1502,11 +1502,14 @@ window.openPCard = function(key) {
       <ul class="pcard-ings-list">
         ${linked.map((l, idx) => {
           if (l.kind === 'linked') {
+            const g = getIngredientGrams(l);
             return `<li>
               <span class="pcard-ing-icon linked" title="${l.optional ? 'Опціональний інгредієнт, привʼязаний' : 'Привʼязано до продукту'}">●</span>
               <span class="pcard-ing-raw">${escapeHtml(l.raw)}</span>
               <a class="pcard-ing-link" onclick="event.stopPropagation();openPCard('${l.productKey}')">→ ${escapeHtml(l.productName || '')}</a>
-              <button class="pcard-ing-link-btn" onclick="event.stopPropagation();openManualLinkIngredient('${key}',${idx})" title="Перепривʼязати до іншого продукту">✏️</button>
+              <input class="pcard-ing-grams" type="number" min="0" step="1" value="${g || ''}" onclick="event.stopPropagation()" oninput="updateRecipeIngredientGrams('${key}',${idx},this.value)" title="Грамовка для цього інгредієнта">
+              <span class="pcard-ing-grams-unit">г</span>
+              <button class="pcard-ing-link-btn" onclick="event.stopPropagation();openManualLinkIngredient('${key}',${idx})" title="Перепривʼязати">✏️</button>
               <button class="pcard-ing-link-btn" onclick="event.stopPropagation();unlinkRecipeIngredient('${key}',${idx})" title="Відвʼязати">×</button>
             </li>`;
           }
@@ -1568,6 +1571,27 @@ window.openPCard = function(key) {
     <button class="pcard-del-btn" title="Видалити" onclick="confirmDeletePCardFood('${key}')">🗑</button>`;
 
   document.getElementById('pcardModal').classList.add('on');
+};
+
+// Update the grams override on a single linked ingredient. Persists to
+// Firebase + recomputes recipe КБЖУ. Debounced via plain re-write — input
+// fires per keystroke but Firebase write is cheap.
+let _gramsUpdateTimer = null;
+window.updateRecipeIngredientGrams = function(recipeKey, ingIdx, value) {
+  const recipe = FOODS[recipeKey];
+  if (!recipe || !Array.isArray(recipe.linkedIngredients)) return;
+  const ing = recipe.linkedIngredients[ingIdx];
+  if (!ing) return;
+  const n = parseFloat(String(value).replace(',', '.'));
+  ing.grams = (isNaN(n) || n <= 0) ? null : n;
+  recomputeRecipeNutrition(recipe);
+  // Live-update the visible kcal in the modal header
+  const kcalEl = document.getElementById('pcardKcal');
+  if (kcalEl) kcalEl.textContent = recipe.kcal != null ? Math.round(recipe.kcal) : '—';
+  clearTimeout(_gramsUpdateTimer);
+  _gramsUpdateTimer = setTimeout(() => {
+    if (db) set(ref(db, 'racion/foods/' + recipeKey), recipe).catch(() => {});
+  }, 400);
 };
 
 // Rename a recipe (or any FOODS entry). Asks for the new name via cfModal,
@@ -3926,6 +3950,14 @@ function gramsFromRaw(raw) {
 // product convention so menu generation can use the same arithmetic).
 // Also stores totalG so a serving size can be computed downstream.
 // Returns true if nutrition was successfully recomputed, false otherwise.
+// Authoritative grams for a linked ingredient: explicit override wins,
+// otherwise parse from the raw text. Prevents ambiguity once the user
+// has set a value manually.
+function getIngredientGrams(l) {
+  if (l && typeof l.grams === 'number' && l.grams > 0) return l.grams;
+  return gramsFromRaw(l?.raw);
+}
+
 function recomputeRecipeNutrition(recipe) {
   const linked = recipe?.linkedIngredients;
   if (!Array.isArray(linked)) return false;
@@ -3934,7 +3966,7 @@ function recomputeRecipeNutrition(recipe) {
     if (l.kind !== 'linked' || !l.productKey) continue;
     const product = FOODS[l.productKey];
     if (!product || !(product.kcal > 0)) continue;
-    const grams = gramsFromRaw(l.raw);
+    const grams = getIngredientGrams(l);
     if (!grams) continue;
     totalG    += grams;
     totalKcal += grams * (product.kcal    || 0) / 100;
@@ -5091,7 +5123,7 @@ function generateMenuLocally(pid) {
           const product = FOODS[l.productKey] || {};
           return {
             l, product,
-            grams: gramsFromRaw(l.raw) || 0,
+            grams: getIngredientGrams(l) || 0,
           };
         })
         .filter(x => x.grams > 0 && (x.product.kcal || 0) > 0);
