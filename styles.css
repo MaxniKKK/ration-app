@@ -534,6 +534,25 @@ body{background:var(--bg);color:var(--text);font-family:'Golos Text',sans-serif;
 .pcard-ing-grams:focus{border-color:var(--accent);}
 .pcard-ing-grams-unit{font-size:10px;color:var(--muted);margin-left:2px;}
 
+/* DICTIONARIES VIEW */
+.dicts-list{display:flex;flex-direction:column;gap:8px;padding:10px 14px 90px;}
+.dict-card{background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
+.dict-hdr{display:flex;align-items:center;gap:11px;padding:12px 14px;cursor:pointer;}
+.dict-hdr:hover{background:rgba(255,255,255,.02);}
+.dict-icon{font-size:18px;flex-shrink:0;}
+.dict-info{flex:1;min-width:0;}
+.dict-name{font-family:'Unbounded',sans-serif;font-size:11px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.3px;}
+.dict-sub{font-size:10px;color:var(--muted);margin-top:3px;line-height:1.4;}
+.dict-arr{font-size:10px;color:var(--muted);}
+.dict-body{padding:0 12px 12px;border-top:1px solid var(--border);max-height:420px;overflow-y:auto;}
+.dict-row{display:flex;align-items:center;gap:6px;padding:5px 0;}
+.dict-row-add{padding:8px 0 10px;border-bottom:1px solid var(--border);margin-bottom:6px;}
+.dict-row input{background:#0d0d0d;border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-family:'Golos Text',sans-serif;font-size:11px;outline:none;min-width:0;}
+.dict-row input:focus{border-color:var(--accent);}
+.dict-row button{background:var(--accent);border:none;border-radius:6px;padding:6px 11px;color:#000;font-family:'Unbounded',sans-serif;font-size:9px;font-weight:700;cursor:pointer;flex-shrink:0;}
+.dict-row-del{background:rgba(239,68,68,.12) !important;color:#ef4444 !important;border:1px solid rgba(239,68,68,.3) !important;width:26px;height:26px;padding:0 !important;font-size:13px !important;}
+.dict-row-del:hover{background:rgba(239,68,68,.2) !important;}
+
 /* PCARD recipe-name edit button */
 .pcard-name-edit{background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;padding:0 4px;vertical-align:middle;}
 .pcard-name-edit:hover{color:var(--accent);}

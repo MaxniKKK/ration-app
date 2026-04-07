@@ -286,14 +286,15 @@ function getIngredientNutr(name) {
   return null;
 }
 
-// Частка денних калорій для кожного типу прийому. Якщо в людини більше/менше
-// прийомів — суми нормалізуються щоб давати 100% денних ккал.
-const MEAL_KCAL_SHARE = {
+// Default kcal share per meal type (normalized at use site if slot count differs).
+// Loaded into MEAL_KCAL_SHARE from racion/mealKcalShare on init; editable.
+const DEFAULT_MEAL_KCAL_SHARE = {
   breakfast: 0.25,
   lunch:     0.32,
   dinner:    0.25,
   snack:     0.09,
 };
+let MEAL_KCAL_SHARE = { ...DEFAULT_MEAL_KCAL_SHARE };
 
 // Які категорії інгредієнтів кладемо в кожен тип прийому
 const MEAL_RECIPE = {
@@ -591,6 +592,18 @@ function initFirebase(cfg) {
         FOOD_CATEGORIES = { ...DEFAULT_FOOD_CATEGORIES_SEED };
         set(ref(db, 'racion/foodCategoryRules'), FOOD_CATEGORIES).catch(() => {});
       }
+    });
+    // Meal kcal share per type (editable tuning param)
+    onValue(ref(db, 'racion/mealKcalShare'), (snap) => {
+      const obj = snap.val();
+      if (obj && typeof obj === 'object') MEAL_KCAL_SHARE = { ...DEFAULT_MEAL_KCAL_SHARE, ...obj };
+      else { MEAL_KCAL_SHARE = { ...DEFAULT_MEAL_KCAL_SHARE }; set(ref(db, 'racion/mealKcalShare'), MEAL_KCAL_SHARE).catch(() => {}); }
+    });
+    // Recipe whitelist threshold (0..1 ratio)
+    onValue(ref(db, 'racion/recipeWhitelistThreshold'), (snap) => {
+      const v = snap.val();
+      if (typeof v === 'number' && v > 0 && v <= 1) RECIPE_WHITELIST_THRESHOLD = v;
+      else { RECIPE_WHITELIST_THRESHOLD = DEFAULT_RECIPE_WHITELIST_THRESHOLD; set(ref(db, 'racion/recipeWhitelistThreshold'), RECIPE_WHITELIST_THRESHOLD).catch(() => {}); }
     });
     // Measurement units — seedable, editable
     onValue(ref(db, 'racion/units'), (snap) => {
@@ -1262,7 +1275,7 @@ window.selectFoodForEdit = async function(idx) {
 let _editingFoodKey = null;
 
 window.showFdTab = function(tab) {
-  ['dir', 'recipes', 'silpo'].forEach(t => {
+  ['dir', 'recipes', 'silpo', 'dicts'].forEach(t => {
     const tabEl = document.getElementById('fd-tab-' + t);
     const ctEl  = document.getElementById('fd-' + t);
     if (tabEl) tabEl.classList.toggle('active', t === tab);
@@ -1270,6 +1283,7 @@ window.showFdTab = function(tab) {
   });
   if (tab === 'dir')     renderFoodsDir();
   if (tab === 'recipes') renderRecipesView();
+  if (tab === 'dicts')   renderDictionariesView();
 };
 
 window.renderFoodsDir = function() {
@@ -4157,8 +4171,9 @@ function analyzeRecipeCoverage(recipe, productEntries) {
 }
 
 // Whitelist threshold — recipes with coverage ≥ this become available for the
-// strict-mode generator. 0.7 = 70% of ingredients must map to known products.
-const RECIPE_WHITELIST_THRESHOLD = 0.7;
+// strict-mode generator. Loaded from racion/recipeWhitelistThreshold; editable.
+const DEFAULT_RECIPE_WHITELIST_THRESHOLD = 0.7;
+let RECIPE_WHITELIST_THRESHOLD = DEFAULT_RECIPE_WHITELIST_THRESHOLD;
 
 let _recipeWhitelistFilterOn = false;
 
@@ -4475,6 +4490,228 @@ window.confirmLinkIngredient = async function(productKey, productName) {
   showToast(`Привʼязано: ${_linkingStem} → ${productName}`);
   closeLinkIngredientModal();
   runRecipeCoverageAnalysis();
+};
+
+// ── DICTIONARIES VIEW ───────────────────────────────────────────────────
+// Single editable surface for every Firebase-backed config table. Each
+// dictionary type has a render function and inline edit handlers. Goal: no
+// hardcoded behavior — every row the user sees here is a value they can
+// change, with sensible defaults seeded on first run.
+let _expandedDicts = new Set();
+window.renderDictionariesView = function() {
+  const list = document.getElementById('dictsList');
+  if (!list) return;
+  const dicts = [
+    { key: 'units',     icon: '📏', name: 'Одиниці виміру',    sub: `${UNITS.length} одиниць · ст.л./ч.л./склянка/зубчик/...`, render: renderUnitsDict },
+    { key: 'pieces',    icon: '🍳', name: 'Piece units (правила)', sub: `${PIECE_UNITS.length} правил · яйце=55г, банан=120г, ...`, render: renderPieceUnitsDict },
+    { key: 'staples',   icon: '🧂', name: 'Staples (базові продукти)', sub: `${STAPLES.size} стемів`, render: renderStaplesDict },
+    { key: 'aliases',   icon: '🔗', name: 'Aliases інгредієнтів', sub: `${Object.keys(INGREDIENT_ALIASES).length} привʼязок`, render: renderAliasesDict },
+    { key: 'mealShare', icon: '⚖️', name: 'Калорії на прийом',  sub: `breakfast ${Math.round((MEAL_KCAL_SHARE.breakfast||0)*100)}% · lunch ${Math.round((MEAL_KCAL_SHARE.lunch||0)*100)}% · dinner ${Math.round((MEAL_KCAL_SHARE.dinner||0)*100)}% · snack ${Math.round((MEAL_KCAL_SHARE.snack||0)*100)}%`, render: renderMealShareDict },
+    { key: 'whitelist', icon: '🎯', name: 'Поріг whitelist',    sub: `${Math.round(RECIPE_WHITELIST_THRESHOLD*100)}% покриття`, render: renderWhitelistDict },
+  ];
+  list.innerHTML = dicts.map(d => {
+    const expanded = _expandedDicts.has(d.key);
+    return `<div class="dict-card">
+      <div class="dict-hdr" onclick="toggleDict('${d.key}')">
+        <span class="dict-icon">${d.icon}</span>
+        <div class="dict-info">
+          <div class="dict-name">${d.name}</div>
+          <div class="dict-sub">${d.sub}</div>
+        </div>
+        <span class="dict-arr">${expanded ? '▼' : '▶'}</span>
+      </div>
+      ${expanded ? `<div class="dict-body" id="dict-body-${d.key}"></div>` : ''}
+    </div>`;
+  }).join('');
+  // Render expanded bodies
+  for (const d of dicts) {
+    if (_expandedDicts.has(d.key)) {
+      const body = document.getElementById('dict-body-' + d.key);
+      if (body) body.innerHTML = d.render();
+    }
+  }
+};
+window.toggleDict = function(key) {
+  if (_expandedDicts.has(key)) _expandedDicts.delete(key);
+  else _expandedDicts.add(key);
+  renderDictionariesView();
+};
+
+// — UNITS dict —
+function renderUnitsDict() {
+  return `
+    <div class="dict-row dict-row-add">
+      <input id="newUnitName"    placeholder="назва (ст.л.)" style="flex:1.2">
+      <input id="newUnitG"       placeholder="г" type="number" style="width:60px">
+      <input id="newUnitAliases" placeholder="aliases (через кому)" style="flex:2">
+      <button onclick="dictAddUnit()">+</button>
+    </div>
+    ${UNITS.map((u, i) => `
+      <div class="dict-row">
+        <input value="${escapeHtml(u.name)}"  oninput="dictUpdateUnit(${i},'name',this.value)" style="flex:1.2">
+        <input value="${u.g}"  type="number" oninput="dictUpdateUnit(${i},'g',parseFloat(this.value)||0)" style="width:60px">
+        <input value="${escapeHtml((u.aliases||[]).join(', '))}" oninput="dictUpdateUnit(${i},'aliases',this.value.split(',').map(s=>s.trim()).filter(Boolean))" style="flex:2">
+        <button onclick="dictRemoveUnit(${i})" class="dict-row-del">×</button>
+      </div>
+    `).join('')}
+  `;
+}
+window.dictUpdateUnit = function(i, field, val) {
+  if (!UNITS[i]) return;
+  UNITS[i][field] = val;
+  persistUnits();
+};
+window.dictAddUnit = function() {
+  const name = document.getElementById('newUnitName').value.trim();
+  const g = parseFloat(document.getElementById('newUnitG').value) || 0;
+  const aliases = document.getElementById('newUnitAliases').value.split(',').map(s=>s.trim()).filter(Boolean);
+  if (!name || !g) { showToast('Назва і вага обовʼязкові', 'err'); return; }
+  UNITS.push({ name, g, aliases });
+  persistUnits();
+  renderDictionariesView();
+};
+window.dictRemoveUnit = function(i) {
+  UNITS.splice(i, 1);
+  persistUnits();
+  renderDictionariesView();
+};
+function persistUnits() {
+  if (db) set(ref(db, 'racion/units'), UNITS).catch(() => {});
+}
+
+// — PIECE UNITS dict —
+function renderPieceUnitsDict() {
+  return `
+    <div class="dict-row dict-row-add">
+      <input id="newPuStem"  placeholder="stem (яйц)" style="flex:1">
+      <input id="newPuG"     placeholder="г" type="number" style="width:60px">
+      <input id="newPuUnit"  placeholder="unit (шт)"  style="width:80px">
+      <button onclick="dictAddPiece()">+</button>
+    </div>
+    ${PIECE_UNITS.map((p, i) => `
+      <div class="dict-row">
+        <input value="${escapeHtml(p.stem)}"  oninput="dictUpdatePiece(${i},'stem',this.value)" style="flex:1">
+        <input value="${p.g}" type="number"   oninput="dictUpdatePiece(${i},'g',parseFloat(this.value)||0)" style="width:60px">
+        <input value="${escapeHtml(p.unit)}"  oninput="dictUpdatePiece(${i},'unit',this.value)" style="width:80px">
+        <button onclick="dictRemovePiece(${i})" class="dict-row-del">×</button>
+      </div>
+    `).join('')}
+  `;
+}
+window.dictUpdatePiece = function(i, field, val) {
+  if (!PIECE_UNITS[i]) return;
+  PIECE_UNITS[i][field] = val;
+  persistPieceUnits();
+};
+window.dictAddPiece = function() {
+  const stem = document.getElementById('newPuStem').value.trim();
+  const g = parseFloat(document.getElementById('newPuG').value) || 0;
+  const unit = document.getElementById('newPuUnit').value.trim() || 'шт';
+  if (!stem || !g) { showToast('Stem і вага обовʼязкові', 'err'); return; }
+  PIECE_UNITS.push({ stem, g, unit });
+  persistPieceUnits();
+  renderDictionariesView();
+};
+window.dictRemovePiece = function(i) {
+  PIECE_UNITS.splice(i, 1);
+  persistPieceUnits();
+  renderDictionariesView();
+};
+function persistPieceUnits() {
+  if (db) set(ref(db, 'racion/pieceUnits'), PIECE_UNITS).catch(() => {});
+}
+
+// — STAPLES dict (delegates to existing modal) —
+function renderStaplesDict() {
+  const all = [...STAPLES].sort();
+  return `
+    <div class="dict-row dict-row-add">
+      <input id="newDictStaple" placeholder="новий stem (горіх)" style="flex:1" onkeydown="if(event.key==='Enter')dictAddStaple()">
+      <button onclick="dictAddStaple()">+</button>
+    </div>
+    <div class="staples-list" style="margin-top:8px">
+      ${all.map(s => `
+        <div class="staple-tag">
+          <span>${escapeHtml(s)}</span>
+          <button onclick="dictRemoveStaple('${s}')">×</button>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+window.dictAddStaple = function() {
+  const inp = document.getElementById('newDictStaple');
+  const raw = (inp.value || '').trim().toLowerCase();
+  if (!raw) return;
+  const stem = stemUk(raw);
+  if (!stem || stem.length < 2) { showToast('Закороткий', 'err'); return; }
+  if (STAPLES.has(stem)) { showToast(`'${stem}' вже є`); return; }
+  STAPLES.add(stem);
+  persistStaples();
+  inp.value = '';
+  renderDictionariesView();
+};
+window.dictRemoveStaple = function(s) {
+  STAPLES.delete(s);
+  persistStaples();
+  renderDictionariesView();
+};
+
+// — ALIASES dict —
+function renderAliasesDict() {
+  const entries = Object.entries(INGREDIENT_ALIASES);
+  if (!entries.length) {
+    return `<div style="font-size:11px;color:var(--muted);padding:8px">Поки порожньо. Привʼязки створюються через кнопку 🔗 у списку відсутніх інгредієнтів.</div>`;
+  }
+  return entries.map(([stem, productKey]) => {
+    const f = FOODS[productKey];
+    return `<div class="dict-row">
+      <span style="flex:1;font-size:11px;color:var(--text)">${escapeHtml(stem)}</span>
+      <span style="font-size:10px;color:var(--muted);margin:0 8px">→</span>
+      <span style="flex:2;font-size:11px;color:var(--accent)">${escapeHtml(f?.name || productKey)}</span>
+      <button onclick="dictRemoveAlias('${stem}')" class="dict-row-del">×</button>
+    </div>`;
+  }).join('');
+}
+window.dictRemoveAlias = function(stem) {
+  delete INGREDIENT_ALIASES[stem];
+  if (db) set(ref(db, 'racion/ingredientAliases'), INGREDIENT_ALIASES).catch(() => {});
+  renderDictionariesView();
+};
+
+// — MEAL KCAL SHARE dict —
+function renderMealShareDict() {
+  const types = ['breakfast', 'lunch', 'dinner', 'snack'];
+  const labels = { breakfast: 'Сніданок', lunch: 'Обід', dinner: 'Вечеря', snack: 'Перекус' };
+  return `
+    <div style="font-size:11px;color:var(--muted);padding:0 0 8px;line-height:1.5">Частка денних калорій. Сума необовʼязково 1.0 — нормалізується автоматично за кількістю прийомів.</div>
+    ${types.map(t => `
+      <div class="dict-row">
+        <span style="flex:1;font-size:11px">${labels[t]}</span>
+        <input type="number" step="0.01" min="0" max="1" value="${MEAL_KCAL_SHARE[t] ?? 0}" oninput="dictUpdateMealShare('${t}', parseFloat(this.value)||0)" style="width:80px">
+      </div>
+    `).join('')}
+  `;
+}
+window.dictUpdateMealShare = function(type, val) {
+  MEAL_KCAL_SHARE[type] = val;
+  if (db) set(ref(db, 'racion/mealKcalShare'), MEAL_KCAL_SHARE).catch(() => {});
+};
+
+// — WHITELIST THRESHOLD dict —
+function renderWhitelistDict() {
+  return `
+    <div style="font-size:11px;color:var(--muted);padding:0 0 8px;line-height:1.5">Мінімальна частка інгредієнтів у довіднику для того щоб рецепт став whitelisted (доступний генератору).</div>
+    <div class="dict-row">
+      <span style="flex:1;font-size:11px">Поріг (0.0–1.0)</span>
+      <input type="number" step="0.05" min="0.1" max="1" value="${RECIPE_WHITELIST_THRESHOLD}" oninput="dictUpdateThreshold(parseFloat(this.value)||0.7)" style="width:80px">
+    </div>
+  `;
+}
+window.dictUpdateThreshold = function(val) {
+  if (val < 0.1 || val > 1) return;
+  RECIPE_WHITELIST_THRESHOLD = val;
+  if (db) set(ref(db, 'racion/recipeWhitelistThreshold'), val).catch(() => {});
 };
 
 // ── ADD PRODUCT MODAL (in-place, used by missing-ings panel) ────────────

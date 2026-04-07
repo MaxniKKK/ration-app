@@ -87,7 +87,7 @@
         <span class="ti">📅</span><span>Щоденник</span>
       </div>
       <div class="nav-tab" onclick="showScreen('search')" id="nt-search">
-        <span class="ti">🔍</span><span>Продукти</span>
+        <span class="ti">📚</span><span>Довідники</span>
       </div>
       <div class="nav-tab" onclick="showScreen('profile')" id="nt-profile">
         <span class="ti">⚙️</span><span>Профіль</span>
@@ -187,9 +187,10 @@
     <div class="screen" id="screen-search" style="display: none">
       <!-- Tabs -->
       <div class="fd-tabs">
-        <div class="fd-tab active" id="fd-tab-dir" onclick="showFdTab('dir')">📚 Продукти</div>
+        <div class="fd-tab active" id="fd-tab-dir" onclick="showFdTab('dir')">🥫 Продукти</div>
         <div class="fd-tab" id="fd-tab-recipes" onclick="showFdTab('recipes')">🍳 Рецепти</div>
         <div class="fd-tab" id="fd-tab-silpo" onclick="showFdTab('silpo')">🔍 Сільпо</div>
+        <div class="fd-tab" id="fd-tab-dicts" onclick="showFdTab('dicts')">⚙️ Довідники</div>
       </div>
 
       <!-- DIRECTORY -->
@@ -263,6 +264,11 @@
           <div class="mip-list" id="mipList"></div>
         </div>
         <div class="recipes-list" id="recipesList"></div>
+      </div>
+
+      <!-- DICTIONARIES (config tables, all editable) -->
+      <div id="fd-dicts" style="display:none">
+        <div class="dicts-list" id="dictsList"></div>
       </div>
 
       <!-- SILPO SEARCH -->
