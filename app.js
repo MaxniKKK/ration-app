@@ -1425,7 +1425,12 @@ window.openPCard = function(key) {
   }
 
   const alias = food.name || key.replace(/_/g,' ');
-  document.getElementById('pcardAlias').textContent = alias;
+  const aliasEl = document.getElementById('pcardAlias');
+  if (food.type === 'recipe') {
+    aliasEl.innerHTML = `<span class="pcard-name-text">${escapeHtml(alias)}</span> <button class="pcard-name-edit" onclick="event.stopPropagation();renameRecipePrompt('${key}')" title="Перейменувати">✏️</button>`;
+  } else {
+    aliasEl.textContent = alias;
+  }
   const stitle = (food.silpoTitle && food.silpoTitle !== food.name) ? food.silpoTitle : '';
   document.getElementById('pcardStitle').textContent = stitle;
   document.getElementById('pcardStitle').style.display = stitle ? '' : 'none';
@@ -1565,6 +1570,33 @@ window.openPCard = function(key) {
   document.getElementById('pcardModal').classList.add('on');
 };
 
+// Rename a recipe (or any FOODS entry). Asks for the new name via cfModal,
+// updates food.name in place. Key stays the same so all links survive.
+window.renameRecipePrompt = function(key) {
+  const food = FOODS[key];
+  if (!food) return;
+  showConfirm({
+    icon: '✏️',
+    title: 'Нова назва',
+    text: 'Зміни назву рецепту. Привʼязки і ключ збережуться.',
+    input: { placeholder: 'Назва рецепту', value: food.name || '' },
+    actions: [
+      { label: 'Зберегти', style: 'primary', onClick: async (val) => {
+        const newName = (val || '').trim();
+        if (!newName || newName === food.name) return;
+        food.name = newName;
+        if (db) await set(ref(db, 'racion/foods/' + key), food);
+        showToast('Назву оновлено');
+        if (document.getElementById('pcardModal').classList.contains('on')) {
+          openPCard(key);
+        }
+        refreshFoodsViews();
+      }},
+      { label: 'Скасувати', style: 'cancel' },
+    ],
+  });
+};
+
 // Remove an existing manual/auto link from a recipe ingredient — turns it
 // back into 'missing' (or 'optional' if it was originally optional). The
 // user can then re-link it via the same modal flow.
@@ -1583,43 +1615,26 @@ window.unlinkRecipeIngredient = function(recipeKey, ingIdx) {
   openPCard(recipeKey);
 };
 
-// Manually link a recipe ingredient to a product from the directory.
-// Opens a search modal listing all non-recipe FOODS entries; on pick,
-// updates recipe.linkedIngredients[idx] and persists to Firebase.
+// Manually link a recipe ingredient to a product. Reuses linkIngredientModal
+// (the same modal as the missing-ingredients panel) and routes the pick
+// through a recipe-specific context. The modal supports both directory
+// search and Silpo fallback (if no directory match → search Silpo, on pick
+// auto-add to FOODS, then link).
+let _linkRecipeCtx = null;
 window.openManualLinkIngredient = function(recipeKey, ingIdx) {
   const recipe = FOODS[recipeKey];
   if (!recipe || !Array.isArray(recipe.linkedIngredients)) return;
   const ing = recipe.linkedIngredients[ingIdx];
   if (!ing) return;
-
-  // Build a list of available products
-  const products = Object.entries(FOODS)
-    .filter(([k, f]) => f && f.type !== 'recipe' && f.name)
-    .map(([k, f]) => ({ key: k, name: f.name }))
-    .sort((a, b) => a.name.localeCompare(b.name, 'uk'));
-
-  if (!products.length) {
-    showConfirm({
-      icon: '⚠️',
-      title: 'Немає продуктів',
-      text: 'Спочатку додай продукти у вкладку Продукти.',
-      actions: [{ label: 'Зрозуміло', style: 'primary' }],
-    });
-    return;
-  }
-
-  // Reuse the existing msearch modal with a new context
-  _remapKey = '__linkIng__';
-  _msCtx = { recipeKey, ingIdx };
-  _msFoods = products.map(p => ({ title: p.name, slug: p.key, _localProduct: true }));
-  document.getElementById('msInp').value = parseIngredientName(ing.raw) || ing.raw;
+  _linkRecipeCtx = { recipeKey, ingIdx };
+  _linkingStem = null;
+  const label = parseIngredientName(ing.raw) || ing.raw;
+  document.getElementById('liStem').textContent = label;
+  document.getElementById('liFilter').value = label;
+  renderLinkProductList(label);
   document.getElementById('pcardModal').classList.remove('on');
-  // Render product list directly (skip API call)
-  document.getElementById('msRes').innerHTML = `<div style="text-align:center;padding:8px;color:var(--muted);font-size:11px">Вибери продукт з довідника:</div>` +
-    products.map((p, i) => `<div class="msd-item" onclick="applyManualLink(${i})">
-      <div class="msd-iname">${escapeHtml(p.name)}</div>
-    </div>`).join('');
-  document.getElementById('msearch').classList.add('on');
+  document.getElementById('linkIngredientModal').classList.add('on');
+  setTimeout(() => document.getElementById('liFilter').focus(), 120);
 };
 
 window.applyManualLink = function(idx) {
@@ -4179,6 +4194,8 @@ window.openLinkIngredientModal = function(stem, label) {
 window.closeLinkIngredientModal = function() {
   document.getElementById('linkIngredientModal').classList.remove('on');
   _linkingStem = null;
+  _linkRecipeCtx = null;
+  _liSilpoResults = [];
 };
 window.filterLinkProducts = function() {
   renderLinkProductList(document.getElementById('liFilter').value);
@@ -4192,21 +4209,116 @@ function renderLinkProductList(filter) {
     .filter(([k, f]) => !q || f.name.toLowerCase().includes(q))
     .sort((a, b) => a[1].name.localeCompare(b[1].name, 'uk'))
     .slice(0, 100);
+  const silpoBtn = q
+    ? `<button class="li-silpo-btn" onclick="liSearchSilpo()">🔍 Пошук «${escapeHtml(q)}» в Сільпо</button>`
+    : '';
+  let body;
   if (!products.length) {
-    list.innerHTML = `<div style="text-align:center;padding:14px;color:var(--muted);font-size:11px">${q ? 'Нічого не знайдено' : 'У довіднику немає продуктів'}</div>`;
+    body = `<div style="text-align:center;padding:14px;color:var(--muted);font-size:11px">${q ? 'У довіднику нічого не знайдено' : 'Введи назву щоб знайти'}</div>`;
+  } else {
+    body = products.map(([k, f]) => `
+      <div class="ap-silpo-item" onclick="confirmLinkIngredient('${k}', '${escapeHtml(f.name).replace(/'/g,'&#39;')}')">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:11px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(f.name)}</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px">${(f.kcal || 0)} ккал · Б ${f.protein || 0} · Ж ${f.fat || 0} · В ${f.carbs || 0}</div>
+        </div>
+      </div>
+    `).join('');
+  }
+  list.innerHTML = body + silpoBtn + `<div id="liSilpoResults"></div>`;
+}
+
+window.liSearchSilpo = async function() {
+  const q = (document.getElementById('liFilter').value || '').trim();
+  if (!q) return;
+  const out = document.getElementById('liSilpoResults');
+  out.innerHTML = `<div style="text-align:center;padding:12px;color:var(--muted);font-size:11px"><div class="spin" style="margin:0 auto 6px"></div>Шукаємо в Сільпо...</div>`;
+  try {
+    const r = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products?limit=15&search=${encodeURIComponent(q)}`, { headers: { accept: 'application/json' } });
+    const data = await r.json();
+    const items = (data.items || []);
+    if (!items.length) {
+      out.innerHTML = `<div style="text-align:center;padding:12px;color:var(--muted);font-size:11px">😔 Нічого не знайдено</div>`;
+      return;
+    }
+    _liSilpoResults = items;
+    out.innerHTML = `<div style="font-size:10px;color:var(--muted);padding:6px 2px;text-transform:uppercase;letter-spacing:.3px;font-family:'Unbounded',sans-serif;font-weight:700">Сільпо</div>` + items.map((p, i) => {
+      const price = p.displayPrice ? `${p.displayPrice} грн/${p.displayRatio || 'шт'}` : '';
+      const thumb = p.icon ? `<img src="https://images.silpo.ua/products/100x100/${p.icon}" style="width:34px;height:34px;object-fit:contain;border-radius:6px;background:var(--card2);flex-shrink:0" onerror="this.style.display='none'">` : '';
+      return `<div class="ap-silpo-item" onclick="liPickSilpo(${i})">
+        ${thumb}
+        <div style="flex:1;min-width:0">
+          <div style="font-size:11px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(p.title)}</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px">${p.brandTitle ? escapeHtml(p.brandTitle) + ' · ' : ''}${price}</div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    out.innerHTML = `<div style="text-align:center;padding:12px;color:var(--muted);font-size:11px">⚠️ ${escapeHtml(e.message)}</div>`;
+  }
+};
+
+let _liSilpoResults = [];
+window.liPickSilpo = async function(idx) {
+  const p = _liSilpoResults[idx];
+  if (!p) return;
+  showAIBusy('🔗 Додаємо продукт', p.title);
+  try {
+    // Fetch full nutrition
+    const detailR = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products/${p.slug}`, { headers: { accept: 'application/json' } });
+    const detail = await detailR.json();
+    const nutr = parseSilpoNutr(detail.attributeGroups) || { kcal: 0, protein: 0, fat: 0, carbs: 0 };
+    const food = {
+      name: p.title,
+      kcal: nutr.kcal || 0,
+      protein: nutr.protein || 0,
+      fat: nutr.fat || 0,
+      carbs: nutr.carbs || 0,
+      source: 'silpo',
+      silpoTitle: p.title,
+      silpoSlug: p.slug,
+      silpoIcon: p.icon || null,
+      silpoPrice: p.displayPrice ?? null,
+      silpoPriceRatio: p.displayRatio ?? null,
+    };
+    seedFoodPieceUnit(food);
+    const key = foodKey(p.title);
+    FOODS[key] = food;
+    if (db) await set(ref(db, 'racion/foods/' + key), food);
+    hideAIBusy();
+    // Now link as if it were a directory pick
+    await confirmLinkIngredient(key, p.title);
+  } catch (e) {
+    hideAIBusy();
+    showToast('Помилка: ' + e.message, 'err');
+  }
+};
+window.confirmLinkIngredient = async function(productKey, productName) {
+  if (!productKey) return;
+  // Recipe-ingredient context: link this specific ingredient on this specific recipe
+  if (_linkRecipeCtx) {
+    const { recipeKey, ingIdx } = _linkRecipeCtx;
+    const recipe = FOODS[recipeKey];
+    if (recipe && Array.isArray(recipe.linkedIngredients) && recipe.linkedIngredients[ingIdx]) {
+      const ing = recipe.linkedIngredients[ingIdx];
+      recipe.linkedIngredients[ingIdx] = {
+        raw: ing.raw,
+        kind: 'linked',
+        productKey,
+        productName,
+        optional: ing.kind === 'optional',
+        manual: true,
+      };
+      recomputeRecipeNutrition(recipe);
+      if (db) await set(ref(db, 'racion/foods/' + recipeKey), recipe);
+    }
+    closeLinkIngredientModal();
+    showToast(`Привʼязано: ${productName}`);
+    setTimeout(() => openPCard(recipeKey), 150);
     return;
   }
-  list.innerHTML = products.map(([k, f]) => `
-    <div class="ap-silpo-item" onclick="confirmLinkIngredient('${k}', '${escapeHtml(f.name).replace(/'/g,'&#39;')}')">
-      <div style="flex:1;min-width:0">
-        <div style="font-size:11px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(f.name)}</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:2px">${(f.kcal || 0)} ккал · Б ${f.protein || 0} · Ж ${f.fat || 0} · В ${f.carbs || 0}</div>
-      </div>
-    </div>
-  `).join('');
-}
-window.confirmLinkIngredient = async function(productKey, productName) {
-  if (!_linkingStem || !productKey) return;
+  // Stem-alias context (missing-ingredients panel)
+  if (!_linkingStem) return;
   INGREDIENT_ALIASES[_linkingStem] = productKey;
   if (db) {
     try { await set(ref(db, 'racion/ingredientAliases'), INGREDIENT_ALIASES); }
@@ -4518,10 +4630,13 @@ window.renderRecipesView = function() {
     const expandedList = isExpanded
       ? `<div class="recipe-cat-list">
           ${grp.recipes.slice(0, 100).map(r => `
-            <div class="recipe-item" onclick="openPCard('${r.key}')">
-              <span class="recipe-item-kcal${r.food.kcal ? '' : ' empty'}">${r.food.kcal ? Math.round(r.food.kcal) : '—'}</span>
-              <span class="recipe-item-name">${escapeHtml(r.food.name)}</span>
-              ${recipeCovBadge(r.food)}
+            <div class="recipe-item">
+              <div class="recipe-item-main" onclick="openPCard('${r.key}')">
+                <span class="recipe-item-kcal${r.food.kcal ? '' : ' empty'}">${r.food.kcal ? Math.round(r.food.kcal) : '—'}</span>
+                <span class="recipe-item-name">${escapeHtml(r.food.name)}</span>
+                ${recipeCovBadge(r.food)}
+              </div>
+              <button class="recipe-item-del" onclick="event.stopPropagation();confirmDeleteSingleRecipe('${r.key}')" title="Видалити рецепт">🗑</button>
             </div>
           `).join('')}
           ${grp.recipes.length > 100 ? `<div class="recipe-item-more">... і ще ${grp.recipes.length - 100} рецептів</div>` : ''}
@@ -4564,6 +4679,25 @@ window.promptComputeCategoryRecipes = function(idx) {
     text: `${todo.length} рецептів буде відправлено на ${AI_PROVIDERS[getAIProvider()].label}. Час: ~${Math.max(1, Math.ceil(todo.length / 30))} хв. Gemini Flash безкоштовний, Claude ~$0.001/рецепт.`,
     actions: [
       { label: 'Запустити', style: 'primary', onClick: () => computeCategoryNutrition(todo).then(() => renderRecipesView()) },
+      { label: 'Скасувати', style: 'cancel' },
+    ],
+  });
+};
+
+window.confirmDeleteSingleRecipe = function(key) {
+  const food = FOODS[key];
+  if (!food) return;
+  showConfirm({
+    icon: '🗑',
+    title: 'Видалити рецепт?',
+    text: `"${food.name}" буде видалено з довідника.`,
+    actions: [
+      { label: 'Видалити', style: 'danger', onClick: () => {
+        delete FOODS[key];
+        if (db) set(ref(db, 'racion/foods/' + key), null).catch(() => {});
+        showToast('Видалено');
+        refreshFoodsViews();
+      }},
       { label: 'Скасувати', style: 'cancel' },
     ],
   });
