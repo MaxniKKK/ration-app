@@ -4056,7 +4056,10 @@ window.openAddProductModal = function(prefillName, stem) {
   document.getElementById('apCarb').value = '';
   document.getElementById('apSilpoInfo').textContent = '';
   document.getElementById('apSilpoInfo').style.display = 'none';
+  const list = document.getElementById('apSilpoList');
+  if (list) { list.innerHTML = ''; list.style.display = 'none'; }
   _apSilpoData = null;
+  _apSilpoResults = [];
   document.getElementById('addProductModal').classList.add('on');
   setTimeout(() => document.getElementById('apName').focus(), 120);
 };
@@ -4087,17 +4090,49 @@ window.apFetchAI = async function() {
   }
   hideAIBusy();
 };
+let _apSilpoResults = [];
 window.apFetchSilpo = async function() {
   const name = document.getElementById('apName').value.trim();
   if (!name) { showToast('Спочатку введи назву', 'err'); return; }
-  showAIBusy('🔍 Пошук в Сільпо', name);
+  const list = document.getElementById('apSilpoList');
+  list.style.display = '';
+  list.innerHTML = `<div style="text-align:center;padding:14px;color:var(--muted);font-size:11px"><div class="spin" style="margin:0 auto 6px"></div>Шукаємо «${escapeHtml(name)}»...</div>`;
   try {
-    const r = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products?limit=15&search=${encodeURIComponent(name)}`, { headers: { accept: 'application/json' } });
+    const r = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products?limit=20&search=${encodeURIComponent(name)}`, { headers: { accept: 'application/json' } });
     const data = await r.json();
-    const items = (data.items || []);
-    if (!items.length) { hideAIBusy(); showToast('Нічого не знайдено', 'err'); return; }
-    const best = items[0];
-    const detailR = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products/${best.slug}`, { headers: { accept: 'application/json' } });
+    const ql = name.toLowerCase();
+    const items = (data.items || []).slice().sort((a, b) => {
+      const ai = a.title.toLowerCase().indexOf(ql);
+      const bi = b.title.toLowerCase().indexOf(ql);
+      return (ai === -1 ? 9999 : ai) - (bi === -1 ? 9999 : bi);
+    });
+    _apSilpoResults = items;
+    if (!items.length) {
+      list.innerHTML = `<div style="text-align:center;padding:14px;color:var(--muted);font-size:11px">😔 Нічого не знайдено</div>`;
+      return;
+    }
+    list.innerHTML = items.map((p, idx) => {
+      const price = p.displayPrice ? `${p.displayPrice} грн/${p.displayRatio || 'шт'}` : '';
+      const thumb = p.icon ? `<img src="https://images.silpo.ua/products/100x100/${p.icon}" style="width:38px;height:38px;object-fit:contain;border-radius:6px;background:var(--card2);flex-shrink:0" onerror="this.style.display='none'">` : '';
+      return `<div class="ap-silpo-item" onclick="apPickSilpo(${idx})">
+        ${thumb}
+        <div style="flex:1;min-width:0">
+          <div style="font-size:11px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(p.title)}</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px">${p.brandTitle ? escapeHtml(p.brandTitle) + ' · ' : ''}${price}</div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    list.innerHTML = `<div style="text-align:center;padding:14px;color:var(--muted);font-size:11px">⚠️ Помилка: ${escapeHtml(e.message)}</div>`;
+  }
+};
+
+window.apPickSilpo = async function(idx) {
+  const p = _apSilpoResults[idx];
+  if (!p) return;
+  showAIBusy('🔗 Завантажуємо КБЖУ', p.title);
+  try {
+    const detailR = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products/${p.slug}`, { headers: { accept: 'application/json' } });
     const detail = await detailR.json();
     const nutr = parseSilpoNutr(detail.attributeGroups);
     if (nutr) {
@@ -4107,17 +4142,21 @@ window.apFetchSilpo = async function() {
       document.getElementById('apCarb').value = nutr.carbs ?? '';
     }
     _apSilpoData = {
-      silpoTitle: best.title,
-      silpoSlug:  best.slug,
-      silpoIcon:  best.icon || null,
-      silpoPrice: best.displayPrice ?? null,
-      silpoPriceRatio: best.displayRatio ?? null,
+      silpoTitle: p.title,
+      silpoSlug:  p.slug,
+      silpoIcon:  p.icon || null,
+      silpoPrice: p.displayPrice ?? null,
+      silpoPriceRatio: p.displayRatio ?? null,
     };
     const info = document.getElementById('apSilpoInfo');
-    info.textContent = `🔗 ${best.title}`;
+    info.textContent = `🔗 ${p.title}`;
     info.style.display = '';
+    // Highlight selected row
+    document.querySelectorAll('.ap-silpo-item').forEach((el, i) => {
+      el.classList.toggle('selected', i === idx);
+    });
   } catch (e) {
-    showToast('Помилка Сільпо: ' + e.message, 'err');
+    showToast('Помилка: ' + e.message, 'err');
   }
   hideAIBusy();
 };
