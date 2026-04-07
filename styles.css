@@ -649,6 +649,6 @@ body{background:var(--bg);color:var(--text);font-family:'Golos Text',sans-serif;
 textarea.pe-input{font-family:'Golos Text',sans-serif;line-height:1.5;}
 
 /* TOAST */
-.toast{position:fixed;bottom:72px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--accent);color:#000;font-family:'Unbounded',sans-serif;font-size:10px;font-weight:700;padding:9px 19px;border-radius:28px;z-index:400;opacity:0;transition:all .3s;pointer-events:none;white-space:nowrap;}
+.toast{position:fixed;bottom:72px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--accent);color:#000;font-family:'Unbounded',sans-serif;font-size:10px;font-weight:700;padding:9px 19px;border-radius:28px;z-index:9999;opacity:0;transition:all .3s;pointer-events:none;white-space:nowrap;}
 .toast.on{opacity:1;transform:translateX(-50%) translateY(0);}
 .toast.err{background:#ef4444;color:#fff;}
