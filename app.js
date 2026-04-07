@@ -608,11 +608,7 @@ function initFirebase(cfg) {
           if (db) set(ref(db, 'racion/foods/' + k), FOODS[k]).catch(() => {});
         }
       }
-      // Refresh directory if it's open
-      const searchScreen = document.getElementById('screen-search');
-      if (searchScreen?.classList.contains('active')) renderFoodsDir();
-      // Re-render menu so item 📚/↗ links pick up freshly loaded FOODS data
-      if (document.getElementById('mealsList')) renderMeals();
+      refreshFoodsViews();
     });
     // Show app
     document.getElementById("loader").classList.add("hide");
@@ -1394,7 +1390,7 @@ window.deleteSelected = function() {
         Promise.all(batch);
         _dirSelected.clear();
         _updateSelCount();
-        renderFoodsDir();
+        refreshFoodsViews();
         showToast('Видалено ✓');
       }},
       { label: 'Скасувати', style: 'cancel' },
@@ -1970,7 +1966,7 @@ window.deleteFoodItem = function(key, skipConfirm = false) {
   const doDelete = () => {
     delete FOODS[key];
     if (db) set(ref(db, 'racion/foods/' + key), null).catch(() => {});
-    renderFoodsDir();
+    refreshFoodsViews();
     showToast('Видалено');
   };
   if (skipConfirm) return doDelete();
@@ -3701,6 +3697,17 @@ function _stemsAllIn(parsedName, stemSet) {
   return true;
 }
 
+// Re-render all FOODS-dependent views. Called both from the Firebase
+// onValue callback (remote echo) and synchronously from local mutators
+// (delete/edit/add) so the UI updates immediately without waiting for the
+// round-trip. Each render is guarded by a DOM-presence check.
+function refreshFoodsViews() {
+  try { if (typeof renderFoodsDir === 'function' && document.getElementById('dirList'))     renderFoodsDir(); }     catch (e) {}
+  try { if (typeof renderRecipesView === 'function' && document.getElementById('recipesList')) renderRecipesView(); }  catch (e) {}
+  try { if (typeof renderMeals === 'function' && document.getElementById('mealsList'))   renderMeals(); }        catch (e) {}
+  try { if (typeof renderMissingIngsPanel === 'function' && document.getElementById('missingIngsPanel')) renderMissingIngsPanel(); } catch (e) {}
+}
+
 // Single staple check — every significant stem must be in the unified
 // STAPLES set (loaded from racion/staples). Handles compound lines like
 // "сіль та перець до смаку" because both 'сіл' and 'перц' are in STAPLES.
@@ -4441,8 +4448,7 @@ async function doDeleteRecipesByKeys(keys, stem) {
   sub.textContent = `${keys.length} рецептів видалено`;
   // Drop the stem from index so the row disappears immediately
   if (stem) _missingIngsIndex.delete(stem);
-  renderMissingIngsPanel();
-  renderRecipesView();
+  refreshFoodsViews();
   setTimeout(() => overlay.classList.remove('on'), 1200);
 }
 
@@ -4607,7 +4613,7 @@ async function deleteRecipeCategory(bucketName) {
   bar.style.width = '100%';
   title.textContent = '✓ Видалено';
   sub.textContent = `${keys.length} рецептів видалено`;
-  renderRecipesView();
+  refreshFoodsViews();
   setTimeout(() => overlay.classList.remove('on'), 1500);
 }
 
