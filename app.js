@@ -153,24 +153,27 @@ const SCALABLE_CATEGORIES = new Set(['protein', 'carb']);
 // first run, then editable from Firebase. Each FOODS record can override
 // these per-product via its own pieceWeight/pieceUnit fields.
 const DEFAULT_PIECE_UNITS_SEED = [
-  { stem: 'яйц',      g: 55,  unit: 'шт' },
-  { stem: 'яєц',      g: 55,  unit: 'шт' },
-  { stem: 'банан',    g: 120, unit: 'шт' },
-  { stem: 'яблук',    g: 150, unit: 'шт' },
-  { stem: 'апельсин', g: 150, unit: 'шт' },
-  { stem: 'мандарин', g: 80,  unit: 'шт' },
-  { stem: 'лимон',    g: 100, unit: 'шт' },
-  { stem: 'авокадо',  g: 200, unit: 'шт' },
-  { stem: 'хліб',     g: 25,  unit: 'скибк' },
-  { stem: 'тост',     g: 25,  unit: 'скибк' },
-  { stem: 'часник',   g: 5,   unit: 'зубч' },
-  { stem: 'цибул',    g: 100, unit: 'шт' },
-  { stem: 'морква',   g: 90,  unit: 'шт' },
-  { stem: 'огірок',   g: 100, unit: 'шт' },
-  { stem: 'помідор',  g: 100, unit: 'шт' },
-  { stem: 'картопл',  g: 130, unit: 'шт' },
-  { stem: 'перц',     g: 120, unit: 'шт' },
-  { stem: 'кабачк',   g: 250, unit: 'шт' },
+  { stem: 'яйц',      g: 55,  unit: 'шт',    aliases: ['яєц', 'яєчк', 'яєчн'] },
+  { stem: 'банан',    g: 120, unit: 'шт',    aliases: [] },
+  { stem: 'яблук',    g: 150, unit: 'шт',    aliases: ['яблуч'] },
+  { stem: 'апельсин', g: 150, unit: 'шт',    aliases: [] },
+  { stem: 'мандарин', g: 80,  unit: 'шт',    aliases: [] },
+  { stem: 'лимон',    g: 100, unit: 'шт',    aliases: ['лайм'] },
+  { stem: 'авокадо',  g: 200, unit: 'шт',    aliases: [] },
+  { stem: 'хліб',     g: 25,  unit: 'скибк', aliases: ['батон', 'булк', 'буханк'] },
+  { stem: 'тост',     g: 25,  unit: 'скибк', aliases: [] },
+  { stem: 'часник',   g: 5,   unit: 'зубч',  aliases: ['часн', 'часнк', 'часничок'] },
+  { stem: 'цибул',    g: 100, unit: 'шт',    aliases: ['цибулин'] },
+  { stem: 'морква',   g: 90,  unit: 'шт',    aliases: ['морк', 'морков'] },
+  { stem: 'огірок',   g: 100, unit: 'шт',    aliases: ['огірк', 'огірочк'] },
+  { stem: 'помідор',  g: 100, unit: 'шт',    aliases: ['томат', 'помідорчик'] },
+  { stem: 'картопл',  g: 130, unit: 'шт',    aliases: ['картоф', 'картоплин'] },
+  { stem: 'перц',     g: 120, unit: 'шт',    aliases: ['перец', 'перчин'] },
+  { stem: 'кабачк',   g: 250, unit: 'шт',    aliases: ['цукін'] },
+  { stem: 'баклажан', g: 300, unit: 'шт',    aliases: [] },
+  { stem: 'груш',     g: 150, unit: 'шт',    aliases: [] },
+  { stem: 'персик',   g: 130, unit: 'шт',    aliases: ['нектарин'] },
+  { stem: 'ківі',     g: 75,  unit: 'шт',    aliases: [] },
 ];
 
 // Live array — populated from Firebase on init.
@@ -650,7 +653,7 @@ function initFirebase(cfg) {
           set(ref(db, 'racion/staples'), STAPLES_DATA).catch(() => {});
         }
       } else {
-        STAPLES_DATA = DEFAULT_STAPLES_SEED.map(s => ({ stem: s, aliases: [] }));
+        STAPLES_DATA = JSON.parse(JSON.stringify(DEFAULT_STAPLES_SEED));
         set(ref(db, 'racion/staples'), STAPLES_DATA).catch(() => {});
       }
       rebuildStaplesFlat();
@@ -3726,44 +3729,57 @@ ${ingList}
 // essentials everyone always has.
 // Match is EXACT against the stem set (no prefix tricks → 'курк' (chicken)
 // can't accidentally hit 'куркум' (turmeric)).
-// Default seed list — written to racion/staples on first load if empty.
-// After that, the Firebase node is the source of truth and editable from UI.
-// Built-in/custom split eliminated — single editable list per the no-hardcode rule.
+// Default seed — written to racion/staples on first load if empty.
+// Each entry = primary stem + variant aliases that mean the same thing.
+// After seed, Firebase is source of truth and fully editable from UI.
 const DEFAULT_STAPLES_SEED = [
-  // Salt
-  'сол', 'сіл', 'посол', 'присол',
-  // Water
-  'вод', 'льод',
-  // Sugar
-  'цук', 'цукор', 'цукр',
-  // Flour
-  'борошн', 'мук',
-  // Baking essentials
-  'мед', 'крохмал', 'желатин', 'дріжд', 'розпуш', 'сод', 'розпушув',
-  // Pepper
-  'перц', 'перец', 'перч', 'перчик',
-  // Oil
-  'олі', 'олій', 'олиї',
-  // Vinegar
-  'оце', 'оцт', 'оцет',
-  // Vanilla
-  'ванілі', 'ваніль', 'ваніл', 'ванільн', 'ванілін',
-  // Dried spices
-  'лавр', 'кмин', 'паприк', 'кориц', 'мускат', 'гвоздик', 'кардамон',
-  'імбир', 'куркум', 'базилік', 'орегано', 'чебрец', 'тимʼ', 'тим', 'розмарин',
-  'мят', 'мʼят', 'кінз', 'фенхель', 'чилі', 'кайєн', 'каррі', 'хмел',
-  'спец', 'пряно', 'аніс', 'бадя', 'зір',
-  // Fresh herbs
-  'петрушк', 'кріп', 'кроп', 'зелен',
-  // Garlic
-  'часник', 'часн', 'часнк', 'зубчик', 'зубч', 'зубк',
+  { stem: 'сол',     aliases: ['сіл', 'посол', 'присол'] },
+  { stem: 'вод',     aliases: ['льод'] },
+  { stem: 'цук',     aliases: ['цукор', 'цукр'] },
+  { stem: 'борошн',  aliases: ['мук'] },
+  { stem: 'мед',     aliases: [] },
+  { stem: 'крохмал', aliases: [] },
+  { stem: 'желатин', aliases: [] },
+  { stem: 'дріжд',   aliases: ['дріжж'] },
+  { stem: 'розпуш',  aliases: ['розпушув'] },
+  { stem: 'сод',     aliases: [] },
+  { stem: 'перц',    aliases: ['перец', 'перч', 'перчик'] },
+  { stem: 'олі',     aliases: ['олій', 'олиї'] },
+  { stem: 'оце',     aliases: ['оцт', 'оцет'] },
+  { stem: 'ванілі',  aliases: ['ваніль', 'ваніл', 'ванільн', 'ванілін'] },
+  { stem: 'лавр',    aliases: [] },
+  { stem: 'кмин',    aliases: [] },
+  { stem: 'паприк',  aliases: [] },
+  { stem: 'кориц',   aliases: [] },
+  { stem: 'мускат',  aliases: [] },
+  { stem: 'гвоздик', aliases: [] },
+  { stem: 'кардамон',aliases: [] },
+  { stem: 'імбир',   aliases: [] },
+  { stem: 'куркум',  aliases: [] },
+  { stem: 'базилік', aliases: [] },
+  { stem: 'орегано', aliases: [] },
+  { stem: 'чебрец',  aliases: ['тимʼ', 'тим'] },
+  { stem: 'розмарин',aliases: [] },
+  { stem: 'мят',     aliases: ['мʼят'] },
+  { stem: 'кінз',    aliases: ['коріандр'] },
+  { stem: 'фенхель', aliases: [] },
+  { stem: 'чилі',    aliases: [] },
+  { stem: 'кайєн',   aliases: [] },
+  { stem: 'каррі',   aliases: [] },
+  { stem: 'хмел',    aliases: [] },
+  { stem: 'спец',    aliases: ['пряно'] },
+  { stem: 'аніс',    aliases: ['бадя', 'зір'] },
+  { stem: 'петрушк', aliases: [] },
+  { stem: 'кріп',    aliases: ['кроп'] },
+  { stem: 'зелен',   aliases: [] },
+  { stem: 'часник',  aliases: ['часн', 'часнк', 'зубчик', 'зубч', 'зубк'] },
 ];
 
 // Staples are stored as an array of { stem, aliases[] } so the editor can
 // group related variants. The flat Set is the runtime lookup used by
 // isStapleLike — rebuilt from STAPLES_DATA whenever it changes.
-let STAPLES_DATA = DEFAULT_STAPLES_SEED.map(s => ({ stem: s, aliases: [] }));
-let STAPLES = new Set(DEFAULT_STAPLES_SEED);
+let STAPLES_DATA = JSON.parse(JSON.stringify(DEFAULT_STAPLES_SEED));
+let STAPLES = new Set();
 function rebuildStaplesFlat() {
   STAPLES = new Set();
   for (const e of STAPLES_DATA) {
@@ -3780,6 +3796,10 @@ function addStapleStem(stem) {
   rebuildStaplesFlat();
   return true;
 }
+// Initial flat-set populate from default seed (covers first paint before
+// Firebase onValue arrives).
+rebuildStaplesFlat();
+
 function removeStapleStem(stem) {
   // Remove by primary stem; if it's an alias, remove from owning entry.
   for (let i = 0; i < STAPLES_DATA.length; i++) {
