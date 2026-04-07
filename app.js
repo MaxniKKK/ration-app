@@ -1605,7 +1605,7 @@ window.openPCard = function(key) {
         }).join('')}
       </ul>
       <div class="pcard-ing-meta">
-        ${matchedCount} в довіднику · ${optionalLinked + optionalCount} опціональних · ${missingCount} відсутні · ${stapleCount} базові${food.sourceUrl ? ` · <a href="${food.sourceUrl}" target="_blank" onclick="event.stopPropagation()" style="color:var(--blue);text-decoration:none">↗ klopotenko</a>` : ''}
+        ${matchedCount} в довіднику · ${optionalLinked + optionalCount} опціональних · ${missingCount} відсутні · ${stapleCount} базові${food.sourceUrl ? ` · <a href="${food.sourceUrl}" target="_blank" onclick="event.stopPropagation()" style="color:var(--blue);text-decoration:none">↗ ${(() => { try { return new URL(food.sourceUrl).hostname.replace(/^www\./,''); } catch { return 'джерело'; } })()}</a>` : ''}
         ${food.computedFromIngs ? `<br><span style="color:var(--accent)">✓ КБЖУ розраховано з лінкованих продуктів${food.totalG ? ` · загальна вага ${food.totalG}г` : ''}</span>` : ''}
       </div>
     `;
