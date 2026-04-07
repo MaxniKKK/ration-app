@@ -4259,8 +4259,17 @@ function generateMenuLocally(pid) {
     const newDay = { totals: { ...targets } };
     if (MENU[pid][day]?.meals) newDay.meals = MENU[pid][day].meals;
 
+    // Compute kcal share per slot, normalized so they sum to dailyKcal.
+    // Same approach as the POOL generator — keeps breakfast/lunch/dinner
+    // proportional to MEAL_KCAL_SHARE and scales each slot to a real target.
+    const dailyKcal = targets.kcal || 2000;
+    const slotTypes = slots.map(s => classifyMealSlot(s.name));
+    const rawShares = slotTypes.map(t => MEAL_KCAL_SHARE[t] || 0.1);
+    const totalShare = rawShares.reduce((s, x) => s + x, 0) || 1;
+    const slotKcals = rawShares.map(s => Math.round(dailyKcal * s / totalShare));
+
     slots.forEach((slot, idx) => {
-      const type = classifyMealSlot(slot.name);
+      const type = slotTypes[idx];
       const pool = recipePool[type] || [];
       if (!pool.length) {
         // No matching recipe — leave the slot empty for the user to fill
@@ -4271,39 +4280,67 @@ function generateMenuLocally(pid) {
       const rot = ((day * 7 + idx * 3) % pool.length + pool.length) % pool.length;
       const picked = pool[rot];
       const recipe = picked.food;
+      const targetKcal = slotKcals[idx];
 
-      // Convert recipe.linkedIngredients into menu items so the menu UI can
-      // show product links the same way as the recipe card. Only include
-      // 'linked' rows; staples/optional/missing are not real menu items.
+      // Build items from linked ingredients with their parsed gram weight,
+      // then compute the recipe's total kcal so we can scale to targetKcal.
       const linked = Array.isArray(recipe.linkedIngredients) ? recipe.linkedIngredients : [];
-      const items = linked
+      const linkedItems = linked
         .filter(l => l && l.kind === 'linked' && l.productKey)
         .map(l => {
           const product = FOODS[l.productKey] || {};
-          const item = {
-            n: l.productName || product.name || l.raw,
-            g: extractGramsFromRaw(l.raw) || '',
-            kcal_per_100:    product.kcal    || 0,
-            protein_per_100: product.protein || 0,
-            fat_per_100:     product.fat     || 0,
-            carbs_per_100:   product.carbs   || 0,
-            productKey: l.productKey,
+          return {
+            l, product,
+            grams: gramsFromRaw(l.raw) || 0,
           };
-          if (product.silpoSlug) {
-            item.silpoSlug       = product.silpoSlug;
-            item.silpoPrice      = product.silpoPrice      ?? null;
-            item.silpoPriceRatio = product.silpoPriceRatio ?? null;
-          }
-          return item;
-        });
+        })
+        .filter(x => x.grams > 0 && (x.product.kcal || 0) > 0);
+
+      const recipeKcal = linkedItems.reduce(
+        (s, x) => s + x.grams * (x.product.kcal || 0) / 100, 0
+      );
+
+      // Scale the whole recipe so its kcal matches the slot target.
+      // Clamp to [0.25, 1.5] so we don't ask for tiny crumbs or 3 portions.
+      let scale = 1;
+      if (recipeKcal > 0) {
+        scale = Math.max(0.25, Math.min(1.5, targetKcal / recipeKcal));
+      }
+      console.log('[gen]', getPersonName(pid), 'd'+day, slot.name, '→', recipe.name,
+        '| target', targetKcal, 'recipeKcal', Math.round(recipeKcal),
+        'scale', scale.toFixed(2), 'linked', linkedItems.length);
+
+      const items = linkedItems.map(({ l, product, grams }) => {
+        const scaledG = Math.max(5, Math.round(grams * scale / 5) * 5);
+        const item = {
+          n: l.productName || product.name || l.raw,
+          g: `${scaledG}г`,
+          kcal_per_100:    product.kcal    || 0,
+          protein_per_100: product.protein || 0,
+          fat_per_100:     product.fat     || 0,
+          carbs_per_100:   product.carbs   || 0,
+          productKey: l.productKey,
+        };
+        if (product.silpoSlug) {
+          item.silpoSlug       = product.silpoSlug;
+          item.silpoPrice      = product.silpoPrice      ?? null;
+          item.silpoPriceRatio = product.silpoPriceRatio ?? null;
+        }
+        return item;
+      });
+
+      // Final kcal = sum of scaled item nutrition (post-rounding) so the
+      // displayed total matches what the items actually add up to.
+      const actualKcal = items.reduce(
+        (s, it) => s + parseG(it.g) * (it.kcal_per_100 || 0) / 100, 0
+      );
 
       newDay[slot.key] = {
-        kcal: Math.round(recipe.kcal * (recipe.servings || 1)),  // rough total per serving
+        kcal: Math.round(actualKcal),
         items,
-        // Store the recipe wrapper so the menu UI can show the recipe name
-        // and link to the recipe card
         recipeKey:  picked.key,
         recipeName: recipe.name,
+        recipeScale: +scale.toFixed(2),
       };
     });
 
