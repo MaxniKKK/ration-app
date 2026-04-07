@@ -1503,6 +1503,25 @@ window.saveRecipeNow = async function(recipeKey) {
     shakeElement(document.getElementById('pcardTagsSection'));
     return;
   }
+  // Validate linkedIngredients: every NON-staple, NON-optional row must be
+  // linked to a product AND have a positive grams value. Staples (сіль/перець
+  // тощо) and optional ingredients can stay missing/zero.
+  if (recipe.type === 'recipe' && Array.isArray(recipe.linkedIngredients)) {
+    const missing = recipe.linkedIngredients.find(l => l.kind === 'missing');
+    if (missing) {
+      showToast(`Привʼяжи інгредієнт: "${missing.raw.slice(0, 40)}"`, 'err');
+      shakeElement(document.getElementById('pcardIngsSection'));
+      return;
+    }
+    const noGrams = recipe.linkedIngredients.find(
+      l => l.kind === 'linked' && !l.optional && (!getIngredientGrams(l) || getIngredientGrams(l) <= 0)
+    );
+    if (noGrams) {
+      showToast(`Заповни грамовку: "${(noGrams.productName || noGrams.raw).slice(0, 40)}"`, 'err');
+      shakeElement(document.getElementById('pcardIngsSection'));
+      return;
+    }
+  }
   const btn = document.getElementById('pcardSaveBtn');
   const origHtml = btn?.innerHTML;
   if (btn) {
