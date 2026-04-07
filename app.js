@@ -5299,7 +5299,26 @@ async function deleteRecipeCategory(bucketName) {
 // We fetch through a public CORS proxy (the site itself doesn't expose
 // Access-Control-Allow-Origin), parse the JSON-LD, and save as a FOODS
 // entry with type='recipe'.
-const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
+// Public CORS proxies tried in order. allorigins.win has been throwing
+// CORS errors lately so we fall through to alternatives. The fetch helper
+// returns the first successful response.
+const CORS_PROXIES = [
+  (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+  (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+  (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+];
+async function fetchViaProxy(url) {
+  let lastErr = null;
+  for (const build of CORS_PROXIES) {
+    try {
+      const r = await fetch(build(url));
+      if (r.ok) return r;
+      lastErr = new Error(`HTTP ${r.status}`);
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr || new Error('Усі CORS-проксі недоступні');
+}
+const CORS_PROXY = 'https://corsproxy.io/?'; // legacy single-URL fallback
 
 window.promptKlopotenkoImport = function() {
   showConfirm({
@@ -5343,9 +5362,7 @@ function findRecipeNode(data) {
 async function importRecipeFromUrl(url) {
   showAIBusy('🔗 Імпортуємо рецепт', 'Завантажуємо сторінку...');
   try {
-    const proxied = CORS_PROXY + encodeURIComponent(url);
-    const r = await fetch(proxied);
-    if (!r.ok) throw new Error(`Не вдалось завантажити сторінку (HTTP ${r.status})`);
+    const r = await fetchViaProxy(url);
     const html = await r.text();
 
     // Find all <script type="application/ld+json"> blocks and pick the Recipe one
