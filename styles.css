@@ -462,6 +462,11 @@ body{background:var(--bg);color:var(--text);font-family:'Golos Text',sans-serif;
 /* ── PERSON EDITOR MODAL ── */
 .pe-modal{position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:610;display:none;align-items:flex-end;}
 .pe-modal.on{display:flex;}
+/* Modals that may stack on top of another pe-modal — bumped above the base
+   pe-modal (610) AND the pcard-modal (620) so they always paint on top. */
+#linkIngredientModal{z-index:660;}
+#addProductModal{z-index:670;}
+#manualRecipeModal{z-index:650;}
 .pe-sheet{background:var(--card);border-radius:20px 20px 0 0;width:100%;max-height:92vh;display:flex;flex-direction:column;}
 .pe-drag{width:38px;height:3px;background:var(--border);border-radius:2px;margin:11px auto 0;flex-shrink:0;}
 .pe-head{padding:14px 16px 10px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);flex-shrink:0;}
