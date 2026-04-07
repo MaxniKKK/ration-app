@@ -1506,7 +1506,15 @@ window.saveRecipeNow = async function(recipeKey) {
   // Validate linkedIngredients: every NON-staple, NON-optional row must be
   // linked to a product AND have a positive grams value. Staples (сіль/перець
   // тощо) and optional ingredients can stay missing/zero.
+  if (recipe.type === 'recipe') {
+    console.log('[saveRecipeNow] linkedIngredients:', recipe.linkedIngredients);
+  }
   if (recipe.type === 'recipe' && Array.isArray(recipe.linkedIngredients)) {
+    const kindCounts = recipe.linkedIngredients.reduce((acc, l) => {
+      acc[l.kind] = (acc[l.kind] || 0) + 1;
+      return acc;
+    }, {});
+    console.log('[saveRecipeNow] kinds:', kindCounts);
     const ingsEl = document.getElementById('pcardIngsSection');
     const shakeIngs = () => {
       // Scroll first so the section is in view, THEN shake.
