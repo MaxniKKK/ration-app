@@ -176,6 +176,34 @@ const DEFAULT_PIECE_UNITS_SEED = [
 // Live array — populated from Firebase on init.
 let PIECE_UNITS = [...DEFAULT_PIECE_UNITS_SEED];
 
+// ── MEASUREMENT UNITS ───────────────────────────────────────────────────
+// Default seed for kitchen units. Each entry: { name, aliases[], g }.
+// `g` is the average gram weight per 1 unit. Loaded into UNITS at startup
+// from racion/units; seeded on first run, then editable.
+// Per-product overrides live on each FOODS record as `food.unitWeights[name]`.
+const DEFAULT_UNITS_SEED = [
+  { name: 'г',       g: 1,    aliases: ['грам', 'грама', 'грамів', 'гр'] },
+  { name: 'кг',      g: 1000, aliases: ['кілограм', 'кілограма', 'кілограмів'] },
+  { name: 'мл',      g: 1,    aliases: ['мілілітр', 'мілілітра', 'мілілітрів'] },
+  { name: 'л',       g: 1000, aliases: ['літр', 'літра', 'літрів'] },
+  { name: 'ст.л.',   g: 15,   aliases: ['ст. л.', 'ст. л', 'ст.л', 'ст ложка', 'столова ложка', 'столових ложок', 'столові ложки', 'столовій ложці', 'столову ложку'] },
+  { name: 'ч.л.',    g: 5,    aliases: ['ч. л.', 'ч. л', 'ч.л', 'ч ложка', 'чайна ложка', 'чайних ложок', 'чайні ложки', 'чайній ложці', 'чайну ложку'] },
+  { name: 'дес.л.',  g: 10,   aliases: ['дес. л.', 'десертна ложка', 'десертних ложок'] },
+  { name: 'склянка', g: 200,  aliases: ['склянки', 'склянок', 'склянку', 'стакан', 'стакана', 'стаканів', 'стаканчик'] },
+  { name: 'зубчик',  g: 5,    aliases: ['зубчика', 'зубчики', 'зубчиків', 'зубок', 'зубка', 'зубків', 'зубці', 'зубком'] },
+  { name: 'пучок',   g: 30,   aliases: ['пучка', 'пучки', 'пучків', 'пучку', 'пучком'] },
+  { name: 'щіпка',   g: 1,    aliases: ['щіпки', 'щіпок', 'щіпку'] },
+  { name: 'дрібка',  g: 1,    aliases: ['дрібки', 'дрібок', 'дрібку'] },
+  { name: 'жменя',   g: 30,   aliases: ['жмені', 'жменю', 'жменьки'] },
+  { name: 'банка',   g: 400,  aliases: ['банки', 'банок', 'банку'] },
+  { name: 'пакет',   g: 200,  aliases: ['пакета', 'пакетів', 'пакетик', 'пакетика', 'пакетиків'] },
+  { name: 'пляшка',  g: 500,  aliases: ['пляшки', 'пляшок', 'пляшку'] },
+  { name: 'шматок',  g: 100,  aliases: ['шматка', 'шматки', 'шматків', 'шматочок', 'шматочки', 'шматочків'] },
+  { name: 'шт',      g: 60,   aliases: ['шт.', 'штук', 'штука', 'штуки', 'штука'] },
+];
+
+let UNITS = [...DEFAULT_UNITS_SEED];
+
 // Returns { g, unit } matched by name stem, or null if no rule matches.
 // This is the SEED — used once per food when first added to the directory.
 function matchPieceUnitByName(name) {
@@ -562,6 +590,16 @@ function initFirebase(cfg) {
       } else {
         FOOD_CATEGORIES = { ...DEFAULT_FOOD_CATEGORIES_SEED };
         set(ref(db, 'racion/foodCategoryRules'), FOOD_CATEGORIES).catch(() => {});
+      }
+    });
+    // Measurement units — seedable, editable
+    onValue(ref(db, 'racion/units'), (snap) => {
+      const arr = snap.val();
+      if (Array.isArray(arr) && arr.length) {
+        UNITS = arr;
+      } else {
+        UNITS = [...DEFAULT_UNITS_SEED];
+        set(ref(db, 'racion/units'), UNITS).catch(() => {});
       }
     });
     // Piece-unit rules — seedable, editable per-product on FOODS records
@@ -3927,22 +3965,99 @@ function ingredientMatchesProduct(ingredientText, productName) {
   return shared >= required;
 }
 
-// Pull a usable gram amount out of a raw klopotenko ingredient string.
-// "500 г свинини" → 500, "1.5 кг картоплі" → 1500, "200 мл молока" → 200,
-// "2 шт яйце" → ~110 (eggs ≈ 55g each). Returns 0 if no number found.
-function gramsFromRaw(raw) {
-  if (!raw) return 0;
-  const s = String(raw).toLowerCase();
-  const m = s.match(/(\d+(?:[.,]\d+)?)\s*(кг|мл|л|шт|г)?/);
-  if (!m) return 0;
-  const num = parseFloat(m[1].replace(',', '.'));
-  if (!num || isNaN(num)) return 0;
-  const unit = m[2] || 'г';
-  if (unit === 'кг') return num * 1000;
-  if (unit === 'л')  return num * 1000;
-  if (unit === 'шт') return num * (s.includes('яйц') ? 55 : 60);
-  return num; // г / мл
+// ── QUANTITY PARSER ─────────────────────────────────────────────────────
+// Parse the leading number of an ingredient line. Supports:
+//   "500 г свинини"   → 500
+//   "1.5 кг картоплі" → 1.5
+//   "1/2 цибулини"    → 0.5
+//   "½ перцю чилі"    → 0.5
+//   "1 1/2 склянки"   → 1.5
+const _UNICODE_FRACTIONS = { '½':0.5,'¼':0.25,'¾':0.75,'⅓':1/3,'⅔':2/3,'⅛':0.125,'⅜':0.375,'⅝':0.625,'⅞':0.875 };
+function parseQty(s) {
+  s = s.trim();
+  // Mixed number with ascii fraction: "1 1/2"
+  let m = s.match(/^(\d+)\s+(\d+)\/(\d+)/);
+  if (m) return parseInt(m[1]) + parseInt(m[2]) / parseInt(m[3]);
+  // Mixed number with unicode fraction: "1 ½"
+  m = s.match(/^(\d+)\s*([½¼¾⅓⅔⅛⅜⅝⅞])/);
+  if (m) return parseInt(m[1]) + _UNICODE_FRACTIONS[m[2]];
+  // Plain ascii fraction "1/2"
+  m = s.match(/^(\d+)\/(\d+)/);
+  if (m) return parseInt(m[1]) / parseInt(m[2]);
+  // Lone unicode fraction "½"
+  m = s.match(/^([½¼¾⅓⅔⅛⅜⅝⅞])/);
+  if (m) return _UNICODE_FRACTIONS[m[1]];
+  // Decimal "200" / "1.5" / "0,5"
+  m = s.match(/^(\d+(?:[.,]\d+)?)/);
+  if (m) return parseFloat(m[1].replace(',', '.'));
+  return NaN;
 }
+
+// Strip whatever parseQty matched from the start of the string
+function stripQty(s) {
+  return s.replace(/^(?:\d+\s+\d+\/\d+|\d+\s*[½¼¾⅓⅔⅛⅜⅝⅞]|\d+\/\d+|[½¼¾⅓⅔⅛⅜⅝⅞]|\d+(?:[.,]\d+)?)\s*/, '');
+}
+
+// Resolve grams for one ingredient line. Knows the linked product so it
+// can use per-product unit-weight overrides (food.unitWeights[unit])
+// and pieceWeight as the fallback for bare-number lines.
+function parseQuantityToGrams(raw, food) {
+  if (!raw) return 0;
+  let s = String(raw).toLowerCase().replace(/\([^)]*\)/g, ' ').trim();
+  const qty = parseQty(s);
+  if (isNaN(qty) || qty <= 0) {
+    // No quantity at all → assume 1 piece of this food
+    if (food?.pieceWeight) return food.pieceWeight;
+    return 0;
+  }
+  s = stripQty(s);
+
+  // Try to find a unit token at the start (longest match wins).
+  // Build a flat candidate list once per call — UNITS is small.
+  const candidates = [];
+  for (const u of UNITS) {
+    candidates.push({ token: u.name.toLowerCase(), unit: u });
+    for (const a of (u.aliases || [])) candidates.push({ token: a.toLowerCase(), unit: u });
+  }
+  candidates.sort((a, b) => b.token.length - a.token.length);
+
+  let matched = null;
+  for (const c of candidates) {
+    const t = c.token;
+    if (!s.startsWith(t)) continue;
+    // Word boundary check: next char must be space, end, dot, or non-letter
+    const next = s.charAt(t.length);
+    if (next === '' || /[\s.,;:]/.test(next) || !/[а-яіїєґa-z]/.test(next)) {
+      matched = c.unit;
+      break;
+    }
+  }
+
+  if (matched) {
+    // Per-food override
+    if (food?.unitWeights && food.unitWeights[matched.name]) {
+      return qty * food.unitWeights[matched.name];
+    }
+    // 'шт' → use the food's own pieceWeight when set
+    if (matched.name === 'шт' && food?.pieceWeight) {
+      return qty * food.pieceWeight;
+    }
+    // 'зубчик' → if food is garlic and has pieceWeight, prefer that
+    if (matched.name === 'зубчик' && food?.pieceWeight) {
+      return qty * food.pieceWeight;
+    }
+    return qty * matched.g;
+  }
+
+  // No unit matched. Bare number with no unit means:
+  //   - if the food has pieceWeight → it's a piece count
+  //   - otherwise → assume grams (legacy behavior)
+  if (food?.pieceWeight) return qty * food.pieceWeight;
+  return qty;
+}
+
+// Backwards-compat shim — old call sites without food context.
+function gramsFromRaw(raw) { return parseQuantityToGrams(raw, null); }
 
 // Recompute a recipe's KБЖУ from its linkedIngredients by summing the
 // nutrition of each linked product weighted by the parsed gram amount.
@@ -3951,11 +4066,12 @@ function gramsFromRaw(raw) {
 // Also stores totalG so a serving size can be computed downstream.
 // Returns true if nutrition was successfully recomputed, false otherwise.
 // Authoritative grams for a linked ingredient: explicit override wins,
-// otherwise parse from the raw text. Prevents ambiguity once the user
-// has set a value manually.
+// otherwise parse from the raw text using the linked product as context
+// (so per-product unitWeights and pieceWeight come into play).
 function getIngredientGrams(l) {
   if (l && typeof l.grams === 'number' && l.grams > 0) return l.grams;
-  return gramsFromRaw(l?.raw);
+  const food = l?.productKey ? FOODS[l.productKey] : null;
+  return parseQuantityToGrams(l?.raw, food);
 }
 
 function recomputeRecipeNutrition(recipe) {
