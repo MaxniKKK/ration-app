@@ -221,6 +221,42 @@
         <div class="recipe-cov-bar">
           <button onclick="runRecipeCoverageAnalysis()" title="Перевірити які рецепти ≥70% покриті продуктами в довіднику">🔬 Перевірити покриття</button>
           <button class="filter-toggle" id="recCovFilter" onclick="toggleRecipeWhitelistFilter()" title="Показати тільки whitelisted рецепти">✓ Лише whitelist</button>
+          <button onclick="openStaplesModal()" title="Редагувати список staples (продукти що ігноруються при покритті)">🧂 Staples</button>
+        </div>
+
+        <!-- STAPLES EDITOR MODAL -->
+        <div class="pe-modal" id="staplesModal" onclick="closeStaplesModal()">
+          <div class="pe-sheet" onclick="event.stopPropagation()">
+            <div class="pe-drag"></div>
+            <div class="pe-head">
+              <div class="pe-title">🧂 Staples — базові продукти</div>
+              <button class="pe-close" onclick="closeStaplesModal()">×</button>
+            </div>
+            <div class="pe-body">
+              <div class="pe-field">
+                <label class="pe-label">Що це</label>
+                <div style="font-size:11px;color:var(--muted);line-height:1.5">Продукти що завжди є на кухні. Не блокують покриття рецептів — вважаються наявними автоматично. Вбудовані staples (сіль, цукор, олія, борошно тощо) показуються сірим і не редагуються. Твої власні — нижче.</div>
+              </div>
+              <div class="pe-field">
+                <label class="pe-label">Додати свій staple</label>
+                <div style="display:flex;gap:6px">
+                  <input class="pe-input" id="newStapleInp" placeholder="наприклад: горіх" style="flex:1" onkeydown="if(event.key==='Enter')addCustomStaple()">
+                  <button class="pe-save" style="padding:9px 14px" onclick="addCustomStaple()">+</button>
+                </div>
+              </div>
+              <div class="pe-field">
+                <label class="pe-label">Твої staples (<span id="customStaplesCount">0</span>)</label>
+                <div id="customStaplesList" class="staples-list"></div>
+              </div>
+              <div class="pe-field">
+                <label class="pe-label">Вбудовані</label>
+                <div id="builtinStaplesList" class="staples-list builtin"></div>
+              </div>
+            </div>
+            <div class="pe-footer">
+              <button class="pe-save" onclick="closeStaplesModal()">Готово</button>
+            </div>
+          </div>
         </div>
         <!-- MISSING INGREDIENTS PANEL — populated after coverage analysis -->
         <div class="missing-ings-panel" id="missingIngsPanel" style="display:none">

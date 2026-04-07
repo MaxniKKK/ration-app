@@ -546,6 +546,14 @@ body{background:var(--bg);color:var(--text);font-family:'Golos Text',sans-serif;
 .mip-del{background:rgba(239,68,68,.12);color:#ef4444;border:1px solid rgba(239,68,68,.3);}
 .mip-del:hover{background:rgba(239,68,68,.2);}
 
+/* STAPLES TAG LIST */
+.staples-list{display:flex;flex-wrap:wrap;gap:6px;max-height:200px;overflow-y:auto;padding:2px;}
+.staples-list.builtin{max-height:140px;}
+.staple-tag{display:inline-flex;align-items:center;gap:6px;background:rgba(200,245,74,.1);border:1px solid rgba(200,245,74,.3);color:var(--accent);font-family:'Golos Text',sans-serif;font-size:11px;padding:5px 9px;border-radius:14px;}
+.staple-tag.readonly{background:var(--card2);border:1px solid var(--border);color:var(--muted);}
+.staple-tag button{background:none;border:none;color:var(--accent);font-size:14px;line-height:1;cursor:pointer;padding:0 1px;font-weight:700;}
+.staple-tag button:hover{color:#ef4444;}
+
 /* GENERIC PE-FORM (used by manual recipe modal & elsewhere) */
 .pe-field{margin-bottom:11px;}
 .pe-label{display:block;font-family:'Unbounded',sans-serif;font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;margin-bottom:5px;}

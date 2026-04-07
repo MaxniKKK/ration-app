@@ -4027,6 +4027,60 @@ window.filterMissingIngs = function() {
   renderMissingIngsPanel();
 };
 
+// ── STAPLES EDITOR MODAL ────────────────────────────────────────────────
+window.openStaplesModal = function() {
+  renderStaplesLists();
+  document.getElementById('staplesModal').classList.add('on');
+  setTimeout(() => document.getElementById('newStapleInp').focus(), 120);
+};
+window.closeStaplesModal = function() {
+  document.getElementById('staplesModal').classList.remove('on');
+};
+function renderStaplesLists() {
+  const customEl  = document.getElementById('customStaplesList');
+  const builtinEl = document.getElementById('builtinStaplesList');
+  const cnt       = document.getElementById('customStaplesCount');
+  if (!customEl || !builtinEl) return;
+  const custom = [...CUSTOM_STAPLES].sort();
+  cnt.textContent = custom.length;
+  customEl.innerHTML = custom.length
+    ? custom.map(s => `
+        <div class="staple-tag">
+          <span>${escapeHtml(s)}</span>
+          <button onclick="removeCustomStaple('${s}')" title="Видалити">×</button>
+        </div>`).join('')
+    : `<div style="font-size:11px;color:var(--muted);padding:8px 0">Поки порожньо. Додай через поле вище або кнопку ✓ Staple у списку відсутніх інгредієнтів.</div>`;
+  const builtin = [...new Set([...TRUE_STAPLE_STEMS, ...OPTIONAL_INGREDIENT_STEMS])].sort();
+  builtinEl.innerHTML = builtin.map(s => `<div class="staple-tag readonly">${escapeHtml(s)}</div>`).join('');
+}
+window.addCustomStaple = async function() {
+  const inp = document.getElementById('newStapleInp');
+  const raw = (inp.value || '').trim().toLowerCase();
+  if (!raw) return;
+  // Use the same stemmer as the analyzer so user input collapses correctly
+  const stem = stemUk(raw);
+  if (!stem || stem.length < 2) { showToast('Занадто короткий', 'err'); return; }
+  if (CUSTOM_STAPLES.has(stem)) { showToast(`'${stem}' вже є`); inp.value = ''; return; }
+  CUSTOM_STAPLES.add(stem);
+  if (db) {
+    try { await set(ref(db, 'racion/customStaples'), [...CUSTOM_STAPLES]); }
+    catch (e) { console.warn('[customStaples-add]', e); }
+  }
+  inp.value = '';
+  renderStaplesLists();
+  showToast(`'${stem}' додано`);
+};
+window.removeCustomStaple = async function(stem) {
+  if (!CUSTOM_STAPLES.has(stem)) return;
+  CUSTOM_STAPLES.delete(stem);
+  if (db) {
+    try { await set(ref(db, 'racion/customStaples'), [...CUSTOM_STAPLES]); }
+    catch (e) { console.warn('[customStaples-rm]', e); }
+  }
+  renderStaplesLists();
+  showToast(`'${stem}' видалено`);
+};
+
 window.markMissingAsStaple = async function(stem) {
   if (!stem) return;
   CUSTOM_STAPLES.add(stem);
