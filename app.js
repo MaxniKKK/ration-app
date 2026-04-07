@@ -639,19 +639,13 @@ function initFirebase(cfg) {
       const obj = snap.val();
       INGREDIENT_ALIASES = (obj && typeof obj === 'object') ? obj : {};
     });
-    // Staples — supports both legacy (string[]) and new (object[]) formats.
-    // Auto-migrates strings to { stem, aliases:[] } objects.
+    // Staples — array of { stem, aliases[] }; seeded on first load.
     onValue(ref(db, 'racion/staples'), (snap) => {
       const arr = snap.val();
       if (Array.isArray(arr) && arr.length) {
-        STAPLES_DATA = arr.map(x => {
-          if (typeof x === 'string') return { stem: x, aliases: [] };
-          return { stem: String(x?.stem || ''), aliases: Array.isArray(x?.aliases) ? x.aliases : [] };
-        }).filter(e => e.stem);
-        // If we just up-migrated from a string[] format, persist the new shape
-        if (arr.some(x => typeof x === 'string')) {
-          set(ref(db, 'racion/staples'), STAPLES_DATA).catch(() => {});
-        }
+        STAPLES_DATA = arr
+          .map(x => ({ stem: String(x?.stem || ''), aliases: Array.isArray(x?.aliases) ? x.aliases : [] }))
+          .filter(e => e.stem);
       } else {
         STAPLES_DATA = JSON.parse(JSON.stringify(DEFAULT_STAPLES_SEED));
         set(ref(db, 'racion/staples'), STAPLES_DATA).catch(() => {});
@@ -3429,27 +3423,6 @@ async function fetchNutritionFromAI(name) {
 // Categories that aren't shown as buckets in the recipes view. Recipes
 // carrying any of these still exist in FOODS — they appear under their
 // other (real) categories. Only orphans fall into 'Інше'.
-const SKIP_BUCKET_NAMES = new Set([
-  // Meta-tags (filters, not categories)
-  'Відео',
-  'Готуємо без світла',
-  'Шкільні рецепти',
-  'Мамині рецепти',
-  'Страви в мультиварці',
-  'Страви з пшениці',
-  // User-decided exclusions
-  'Дієтичні страви',
-  'Вегетаріанські рецепти',
-  'Блюда на Пасху',
-  'Торти',
-  'Рибне',
-  'Сендвічі та бутерброди',
-  'Випічка',
-  'Солодкі страви',
-  'Десерти',
-  'Коктейлі та напої',
-]);
-
 // Top-level meal-type buckets that the recipes view groups into.
 // Same key as MEAL_TAGS so the rest of the app stays consistent.
 const MEAL_TYPE_BUCKETS = [
@@ -3458,212 +3431,6 @@ const MEAL_TYPE_BUCKETS = [
   { type: 'dinner',    label: 'Вечеря',   icon: '🌙' },
   { type: 'snack',     label: 'Перекус',  icon: '🥗' },
 ];
-
-// Map klopotenko category name → list of meal types it serves.
-// A category can map to multiple types (Другі страви → lunch + dinner) so
-// recipes appear in both meal-type buckets.
-const CATEGORY_TO_MEAL_TYPES = {
-  'Перші страви':    ['lunch'],
-  'Другі страви':    ['lunch', 'dinner'],
-  'М\'ясні':         ['lunch', 'dinner'],
-  'Овочеві':         ['lunch', 'dinner'],
-  'Гарніри':         ['lunch', 'dinner'],
-  'Салати':          ['lunch', 'dinner'],
-  'Закуски':         ['snack'],
-  'Холодні закуски': ['snack'],
-  'Гарячі закуски':  ['snack', 'lunch'],
-  // No own bucket but contribute to breakfast — sweet/baked dishes are
-  // typical morning fare (сирники, оладки, панкейки, гранола, etc).
-  'Солодкі страви':  ['breakfast'],
-  'Випічка':         ['breakfast'],
-};
-
-// Optional display icon per category name. Unknown names get '🍳'.
-const CATEGORY_ICONS = {
-  'Сніданок':                '🌅',
-  'Перші страви':            '🍲',
-  'Другі страви':            '🍽️',
-  'М\'ясні':                 '🥩',
-  'Рибне':                   '🐟',
-  'Овочеві':                 '🥦',
-  'Гарніри':                 '🍚',
-  'Салати':                  '🥗',
-  'Закуски':                 '🥙',
-  'Холодні закуски':         '🍢',
-  'Гарячі закуски':          '🌶️',
-  'Десерти':                 '🍰',
-  'Солодкі страви':          '🍮',
-  'Випічка':                 '🥐',
-  'Дієтичні страви':         '🥬',
-  'Вегетаріанські рецепти':  '🌱',
-  'Сендвічі та бутерброди':  '🥪',
-  'Коктейлі та напої':       '🥤',
-  'Торти':                   '🎂',
-  'Блюда на Пасху':          '🌻',
-};
-
-// ── KLOPOTENKO CATEGORY → MEAL-TYPE TAG MAPPING ──────────────────────────
-// Maps klopotenko's recipeCategory strings (comma-separated) into our
-// breakfast/lunch/dinner/snack tags. A recipe inherits all matching tags.
-const CATEGORY_TO_MEAL_TAGS = [
-  // [substring in category string, [meal types]]
-  ['снідан',         ['breakfast']],
-  ['каш',            ['breakfast']],            // morning porridges
-  ['перші',          ['lunch']],                // soups
-  ['другі',          ['lunch', 'dinner']],      // main courses
-  ['м\'ясн',         ['lunch', 'dinner']],
-  ['рибн',           ['lunch', 'dinner']],
-  ['овочев',         ['lunch', 'dinner']],
-  ['гарнір',         ['lunch', 'dinner']],
-  ['салат',          ['lunch', 'dinner']],
-  ['пиц',            ['lunch', 'dinner']],
-  ['паст',           ['lunch', 'dinner']],
-  ['десерт',         ['snack']],
-  ['солодк',         ['snack']],
-  ['випічк',         ['snack']],
-  ['закуск',         ['snack']],
-  ['коктейл',        ['snack']],
-  ['напо',           ['snack']],
-];
-
-// Categories we DON'T want to import as recipes (not full meals)
-const SKIP_CATEGORIES = ['Соуси', 'Заготовки', 'Варення', 'Маринади'];
-
-function inferMealTagsFromCategory(category, name) {
-  const c = (category || '').toLowerCase();
-  const n = (name || '').toLowerCase();
-  const tags = new Set();
-  // Name-based hints win first
-  if (/снідан|каша/.test(n)) tags.add('breakfast');
-  for (const [sub, mealTags] of CATEGORY_TO_MEAL_TAGS) {
-    if (c.includes(sub) || n.includes(sub)) {
-      mealTags.forEach(t => tags.add(t));
-    }
-  }
-  return [...tags];
-}
-
-// Bulk import recipes.json (shipped in repo) into FOODS as type='recipe'
-// stubs with kcal=0. Per-category AI nutrition is computed afterwards.
-window.promptBulkImportKlopotenko = function() {
-  showConfirm({
-    icon: '📥',
-    title: 'Імпорт бази рецептів',
-    text: 'Завантажу ~1600 рецептів з klopotenko.com у твій довідник. Це безкоштовно (без AI), КБЖУ можна буде додати потім по категоріях. Записи в Firebase займуть ~2 МБ.',
-    actions: [
-      { label: 'Імпортувати', style: 'primary', onClick: () => doBulkImportKlopotenko() },
-      { label: 'Скасувати', style: 'cancel' },
-    ],
-  });
-};
-
-async function doBulkImportKlopotenko() {
-  const overlay = document.getElementById('progOverlay');
-  const bar     = document.getElementById('progBar');
-  const title   = document.getElementById('progTitle');
-  const sub     = document.getElementById('progSub');
-  overlay.classList.add('on');
-  title.textContent = '📥 Завантажуємо базу рецептів...';
-  sub.textContent = '';
-  bar.style.width = '0%';
-
-  try {
-    const r = await fetch('./recipes.json');
-    if (!r.ok) throw new Error('recipes.json не знайдено в репо (HTTP ' + r.status + ')');
-    const recipes = await r.json();
-
-    title.textContent = '📥 Імпорт у довідник...';
-    sub.textContent = `${recipes.length} рецептів`;
-
-    // Build batch update — much faster than per-item set()
-    const batch = {};
-    let added = 0, skipped = 0;
-    for (const rec of recipes) {
-      if (!rec.name || !rec.ingredients?.length) { skipped++; continue; }
-      // Skip non-meal categories
-      if (rec.category && SKIP_CATEGORIES.some(s => rec.category.includes(s))) { skipped++; continue; }
-      const key = foodKey(rec.name);
-      // Don't overwrite existing entries (manual edits, etc)
-      if (FOODS[key]) { skipped++; continue; }
-      const tags = inferMealTagsFromCategory(rec.category, rec.name);
-      // Prefer the pre-computed mealTypes from recipes.json (classifier
-      // ran during build time and stored breakfast/lunch/dinner/snack tags
-      // per recipe). Fall back to legacy tag inference for entries without it.
-      const mealTags = (rec.mealTypes && rec.mealTypes.length) ? rec.mealTypes : tags;
-      const food = {
-        name: rec.name,
-        type: 'recipe',
-        kcal:    rec.kcal    || 0,
-        protein: rec.protein || 0,
-        fat:     rec.fat     || 0,
-        carbs:   rec.carbs   || 0,
-        ingredients: rec.ingredients,
-        category: rec.category || '',
-        cuisine: rec.cuisine || '',
-        servings: rec.servings || null,
-        sourceUrl: rec.sourceUrl,
-        sourceImage: rec.sourceImage || null,
-        source: 'klopotenko',
-        tags: mealTags,
-      };
-      // Skip recipes that didn't classify into any meal type — they're
-      // typically jams/preserves that we don't want in the planner anyway
-      if (!mealTags.length) { skipped++; continue; }
-      FOODS[key] = food;
-      batch['racion/foods/' + key] = food;
-      added++;
-    }
-
-    // Write in chunks of 200 (Firebase update payload limits)
-    if (db) {
-      const keys = Object.keys(batch);
-      for (let i = 0; i < keys.length; i += 200) {
-        const chunk = {};
-        keys.slice(i, i + 200).forEach(k => chunk[k] = batch[k]);
-        await update(ref(db), chunk);
-        bar.style.width = `${Math.round((i + 200) / keys.length * 100)}%`;
-        sub.textContent = `Збережено ${Math.min(i+200, keys.length)} з ${keys.length}`;
-      }
-    }
-
-    bar.style.width = '100%';
-    title.textContent = '✓ Готово!';
-    sub.textContent = `Імпортовано: ${added}. Пропущено: ${skipped}. Тепер можеш додати КБЖУ через AI по категоріях.`;
-    renderFoodsDir();
-    setTimeout(() => overlay.classList.remove('on'), 3500);
-  } catch (e) {
-    overlay.classList.remove('on');
-    showConfirm({
-      icon: '⚠️',
-      title: 'Помилка імпорту',
-      text: e.message || String(e),
-      actions: [{ label: 'Зрозуміло', style: 'primary' }],
-    });
-  }
-}
-
-// Compute nutrition via AI for all recipes in a given category that don't yet
-// have kcal. Cheap with Gemini Flash (free), modest with Claude (~$0.001/recipe).
-window.promptComputeCategoryNutrition = function(catKey) {
-  const cat = RECIPE_CATEGORIES.find(c => c.key === catKey);
-  if (!cat) return;
-  const todo = Object.entries(FOODS).filter(([k, f]) =>
-    f?.type === 'recipe' && (f.category || '').includes(cat.label) && !f.kcal
-  );
-  if (!todo.length) {
-    showToast('У цій категорії немає рецептів без КБЖУ');
-    return;
-  }
-  showConfirm({
-    icon: '🤖',
-    title: `Розрахувати КБЖУ для "${cat.label}"`,
-    text: `${todo.length} рецептів буде відправлено на обраний AI провайдер. Це може зайняти ${Math.ceil(todo.length / 60)} хв (Gemini ~60/хв, Claude швидше). Натисни лише якщо ключ вже налаштовано.`,
-    actions: [
-      { label: 'Запустити', style: 'primary', onClick: () => computeCategoryNutrition(todo) },
-      { label: 'Скасувати', style: 'cancel' },
-    ],
-  });
-};
 
 async function computeCategoryNutrition(entries) {
   if (!getAIKey()) {
@@ -4154,8 +3921,6 @@ function parseQuantityToGrams(raw, food) {
   return firstQty;
 }
 
-// Backwards-compat shim — old call sites without food context.
-function gramsFromRaw(raw) { return parseQuantityToGrams(raw, null); }
 
 // Recompute a recipe's KБЖУ from its linkedIngredients by summing the
 // nutrition of each linked product weighted by the parsed gram amount.
@@ -5372,9 +5137,6 @@ window.promptKlopotenkoImport = function() {
   });
 };
 
-// Backwards-compat alias — old code paths may still call importKlopotenkoRecipe
-window.importKlopotenkoRecipe = (url) => importRecipeFromUrl(url);
-
 // Walk an arbitrary parsed JSON-LD blob looking for any Recipe object.
 // Schema.org pages may bundle Recipe inside an array, inside @graph, or as
 // the top-level object — we handle all three.
@@ -5746,15 +5508,6 @@ function generateMenuLocally(pid) {
 
     MENU[pid][day] = newDay;
   }
-}
-
-// Best-effort: pull a gram value out of a raw klopotenko ingredient string.
-// Returns '150г' or empty string if no number found.
-function extractGramsFromRaw(raw) {
-  if (!raw) return '';
-  const m = String(raw).match(/(\d+(?:[.,]\d+)?)\s*(?:г|кг|мл|л|шт)?/i);
-  if (!m) return '';
-  return m[1] + (raw.match(/кг|л\b/i) ? (m[1] + 'кг') : 'г');
 }
 
 // Call AI for one person, parse, write into MENU[pid]
