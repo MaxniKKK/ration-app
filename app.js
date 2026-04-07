@@ -1512,6 +1512,9 @@ window.saveRecipeNow = async function(recipeKey) {
     _markRecipeClean();
     if (btn) btn.innerHTML = '✓ Збережено';
     showToast('Рецепт збережено ✓');
+    // Re-render every surface that may show this recipe (recipes list,
+    // missing-ings panel, menu cards that pulled it in via items, etc).
+    refreshFoodsViews();
     // Brief pause so user sees the confirmation, then close
     setTimeout(() => {
       if (btn) {
