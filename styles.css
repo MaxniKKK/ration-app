@@ -552,6 +552,14 @@ body{background:var(--bg);color:var(--text);font-family:'Golos Text',sans-serif;
 .dict-row button{background:var(--accent);border:none;border-radius:6px;padding:6px 11px;color:#000;font-family:'Unbounded',sans-serif;font-size:9px;font-weight:700;cursor:pointer;flex-shrink:0;}
 .dict-row-del{background:rgba(239,68,68,.12) !important;color:#ef4444 !important;border:1px solid rgba(239,68,68,.3) !important;width:26px;height:26px;padding:0 !important;font-size:13px !important;}
 .dict-row-del:hover{background:rgba(239,68,68,.2) !important;}
+.dict-unit-block{padding:8px 0;border-bottom:1px solid var(--border);}
+.dict-unit-block:last-child{border-bottom:none;}
+.dict-chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px;padding-left:2px;}
+.dict-chip{display:inline-flex;align-items:center;gap:5px;background:var(--card2);border:1px solid var(--border);color:var(--text);font-family:'Golos Text',sans-serif;font-size:10px;padding:4px 8px;border-radius:12px;}
+.dict-chip button{background:none !important;border:none !important;color:var(--muted) !important;font-size:13px !important;line-height:1 !important;cursor:pointer;padding:0 1px !important;font-weight:700;width:auto !important;height:auto !important;}
+.dict-chip button:hover{color:#ef4444 !important;}
+.dict-chip-input{background:#0d0d0d;border:1px dashed var(--border);border-radius:12px;padding:4px 9px;color:var(--text);font-family:'Golos Text',sans-serif;font-size:10px;outline:none;width:90px;}
+.dict-chip-input:focus{border-style:solid;border-color:var(--accent);}
 
 /* PCARD recipe-name edit button */
 .pcard-name-edit{background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;padding:0 4px;vertical-align:middle;}

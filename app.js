@@ -4541,21 +4541,45 @@ window.toggleDict = function(key) {
 function renderUnitsDict() {
   return `
     <div class="dict-row dict-row-add">
-      <input id="newUnitName"    placeholder="назва (ст.л.)" style="flex:1.2">
-      <input id="newUnitG"       placeholder="г" type="number" style="width:60px">
-      <input id="newUnitAliases" placeholder="aliases (через кому)" style="flex:2">
+      <input id="newUnitName" placeholder="назва (ст.л.)" style="flex:1.2">
+      <input id="newUnitG"    placeholder="г" type="number" style="width:60px">
       <button onclick="dictAddUnit()">+</button>
     </div>
     ${UNITS.map((u, i) => `
-      <div class="dict-row">
-        <input value="${escapeHtml(u.name)}"  oninput="dictUpdateUnit(${i},'name',this.value)" style="flex:1.2">
-        <input value="${u.g}"  type="number" oninput="dictUpdateUnit(${i},'g',parseFloat(this.value)||0)" style="width:60px">
-        <input value="${escapeHtml((u.aliases||[]).join(', '))}" oninput="dictUpdateUnit(${i},'aliases',this.value.split(',').map(s=>s.trim()).filter(Boolean))" style="flex:2">
-        <button onclick="dictRemoveUnit(${i})" class="dict-row-del">×</button>
+      <div class="dict-unit-block">
+        <div class="dict-row">
+          <input value="${escapeHtml(u.name)}" oninput="dictUpdateUnit(${i},'name',this.value)" style="flex:1.2">
+          <input value="${u.g}" type="number"  oninput="dictUpdateUnit(${i},'g',parseFloat(this.value)||0)" style="width:60px">
+          <button onclick="dictRemoveUnit(${i})" class="dict-row-del">×</button>
+        </div>
+        <div class="dict-chips">
+          ${(u.aliases || []).map((a, ai) => `
+            <span class="dict-chip">
+              ${escapeHtml(a)}
+              <button onclick="dictRemoveUnitAlias(${i},${ai})" title="Видалити">×</button>
+            </span>
+          `).join('')}
+          <input class="dict-chip-input" placeholder="+ alias" onkeydown="if(event.key==='Enter'){dictAddUnitAlias(${i},this.value);this.value='';}" onblur="if(this.value.trim()){dictAddUnitAlias(${i},this.value);this.value='';}">
+        </div>
       </div>
     `).join('')}
   `;
 }
+window.dictAddUnitAlias = function(i, raw) {
+  const v = (raw || '').trim();
+  if (!v || !UNITS[i]) return;
+  if (!Array.isArray(UNITS[i].aliases)) UNITS[i].aliases = [];
+  if (UNITS[i].aliases.includes(v)) return;
+  UNITS[i].aliases.push(v);
+  persistUnits();
+  renderDictionariesView();
+};
+window.dictRemoveUnitAlias = function(i, ai) {
+  if (!UNITS[i] || !Array.isArray(UNITS[i].aliases)) return;
+  UNITS[i].aliases.splice(ai, 1);
+  persistUnits();
+  renderDictionariesView();
+};
 window.dictUpdateUnit = function(i, field, val) {
   if (!UNITS[i]) return;
   UNITS[i][field] = val;
@@ -4564,9 +4588,8 @@ window.dictUpdateUnit = function(i, field, val) {
 window.dictAddUnit = function() {
   const name = document.getElementById('newUnitName').value.trim();
   const g = parseFloat(document.getElementById('newUnitG').value) || 0;
-  const aliases = document.getElementById('newUnitAliases').value.split(',').map(s=>s.trim()).filter(Boolean);
   if (!name || !g) { showToast('Назва і вага обовʼязкові', 'err'); return; }
-  UNITS.push({ name, g, aliases });
+  UNITS.push({ name, g, aliases: [] });
   persistUnits();
   renderDictionariesView();
 };
