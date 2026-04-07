@@ -1497,59 +1497,45 @@ window.updateRecipeIngredientGrams = function(recipeKey, ingIdx, value) {
 window.saveRecipeNow = async function(recipeKey) {
   const recipe = FOODS[recipeKey];
   if (!recipe) return;
-  // Validation: every recipe must have at least one meal-type tag.
-  if (recipe.type === 'recipe' && (!recipe.tags || !recipe.tags.length)) {
-    showToast('Обери хоча б один прийом їжі для рецепта', 'err');
-    shakeElement(document.getElementById('pcardTagsSection'));
-    return;
-  }
-  // Validate linkedIngredients: every NON-staple, NON-optional row must be
-  // linked to a product AND have a positive grams value. Staples (сіль/перець
-  // тощо) and optional ingredients can stay missing/zero.
-  console.log('[saveRecipeNow] called for', recipeKey, 'type:', recipe.type);
-  // Lazy-compute linkedIngredients if missing so validation always runs
-  if (recipe.type === 'recipe' && Array.isArray(recipe.ingredients) && recipe.ingredients.length && !Array.isArray(recipe.linkedIngredients)) {
-    const products = Object.entries(FOODS)
-      .filter(([k, f]) => f && f.type !== 'recipe' && f.name)
-      .map(([k, f]) => ({ key: k, name: f.name }));
-    recipe.linkedIngredients = analyzeRecipeCoverage(recipe, products).linked;
-    console.log('[saveRecipeNow] lazy-computed linkedIngredients');
-  }
-  if (recipe.type === 'recipe' && Array.isArray(recipe.linkedIngredients)) {
-    const kindCounts = recipe.linkedIngredients.reduce((acc, l) => {
-      acc[l.kind] = (acc[l.kind] || 0) + 1;
-      return acc;
-    }, {});
-    console.log('[saveRecipeNow] kinds:', kindCounts, 'sample:', recipe.linkedIngredients.slice(0, 3));
-    const ingsEl = document.getElementById('pcardIngsSection');
-    const shakeIngs = () => {
-      // Scroll first so the section is in view, THEN shake.
-      ingsEl?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
-      // Shake the whole pcard sheet — guaranteed to be visible regardless
-      // of inner overflow clipping. Then flash a red border on the ings list.
-      const sheet = document.querySelector('#pcardModal .pcard-sheet');
-      shakeElement(sheet);
-      const list = ingsEl?.querySelector('.pcard-ings-list');
-      if (list) {
-        list.style.transition = 'box-shadow .25s';
-        list.style.boxShadow = '0 0 0 2px #ef4444';
-        setTimeout(() => { list.style.boxShadow = ''; }, 1200);
+  // ── Collect all validation errors at once, shake every flagged section ──
+  const errors = [];
+  const shakeIds = new Set();
+
+  if (recipe.type === 'recipe') {
+    if (!recipe.tags || !recipe.tags.length) {
+      errors.push('обери прийом їжі');
+      shakeIds.add('pcardTagsSection');
+    }
+    // Lazy-compute linkedIngredients if missing so validation always runs
+    if (Array.isArray(recipe.ingredients) && recipe.ingredients.length && !Array.isArray(recipe.linkedIngredients)) {
+      const products = Object.entries(FOODS)
+        .filter(([k, f]) => f && f.type !== 'recipe' && f.name)
+        .map(([k, f]) => ({ key: k, name: f.name }));
+      recipe.linkedIngredients = analyzeRecipeCoverage(recipe, products).linked;
+    }
+    if (Array.isArray(recipe.linkedIngredients)) {
+      const missing = recipe.linkedIngredients.find(l => l.kind === 'missing');
+      if (missing) {
+        errors.push(`привʼяжи "${missing.raw.slice(0, 30)}"`);
+        shakeIds.add('pcardIngsSection');
       }
-    };
-    const missing = recipe.linkedIngredients.find(l => l.kind === 'missing');
-    if (missing) {
-      showToast(`Привʼяжи інгредієнт: "${missing.raw.slice(0, 40)}"`, 'err');
-      shakeIngs();
-      return;
+      const noGrams = recipe.linkedIngredients.find(
+        l => l.kind === 'linked' && !l.optional && (!getIngredientGrams(l) || getIngredientGrams(l) <= 0)
+      );
+      if (noGrams) {
+        errors.push(`заповни грамовку "${(noGrams.productName || noGrams.raw).slice(0, 30)}"`);
+        shakeIds.add('pcardIngsSection');
+      }
     }
-    const noGrams = recipe.linkedIngredients.find(
-      l => l.kind === 'linked' && !l.optional && (!getIngredientGrams(l) || getIngredientGrams(l) <= 0)
-    );
-    if (noGrams) {
-      showToast(`Заповни грамовку: "${(noGrams.productName || noGrams.raw).slice(0, 40)}"`, 'err');
-      shakeIngs();
-      return;
-    }
+  }
+
+  if (errors.length) {
+    showToast(errors.join(' · '), 'err');
+    // Shake every flagged section + the sheet (so it's visible regardless
+    // of overflow clipping or scroll position).
+    shakeElement(document.querySelector('#pcardModal .pcard-sheet'));
+    for (const id of shakeIds) shakeElement(document.getElementById(id));
+    return;
   }
   const btn = document.getElementById('pcardSaveBtn');
   const origHtml = btn?.innerHTML;
