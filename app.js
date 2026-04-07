@@ -4085,19 +4085,15 @@ function stripQty(s) {
 // Resolve grams for one ingredient line. Knows the linked product so it
 // can use per-product unit-weight overrides (food.unitWeights[unit])
 // and pieceWeight as the fallback for bare-number lines.
+//
+// Scans the WHOLE raw line for the first <quantity><optional unit> pattern
+// — works whether the number is at the start ("200 г куряче філе") OR after
+// the name ("Куряче філе — 200 г", "Цибуля 1 шт").
 function parseQuantityToGrams(raw, food) {
   if (!raw) return 0;
-  let s = String(raw).toLowerCase().replace(/\([^)]*\)/g, ' ').trim();
-  const qty = parseQty(s);
-  if (isNaN(qty) || qty <= 0) {
-    // No quantity at all → assume 1 piece of this food
-    if (food?.pieceWeight) return food.pieceWeight;
-    return 0;
-  }
-  s = stripQty(s);
+  const s = String(raw).toLowerCase().replace(/\([^)]*\)/g, ' ');
 
-  // Try to find a unit token at the start (longest match wins).
-  // Build a flat candidate list once per call — UNITS is small.
+  // Build sorted unit candidate list (longest token first) once per call
   const candidates = [];
   for (const u of UNITS) {
     candidates.push({ token: u.name.toLowerCase(), unit: u });
@@ -4105,39 +4101,57 @@ function parseQuantityToGrams(raw, food) {
   }
   candidates.sort((a, b) => b.token.length - a.token.length);
 
-  let matched = null;
-  for (const c of candidates) {
-    const t = c.token;
-    if (!s.startsWith(t)) continue;
-    // Word boundary check: next char must be space, end, dot, or non-letter
-    const next = s.charAt(t.length);
-    if (next === '' || /[\s.,;:]/.test(next) || !/[а-яіїєґa-z]/.test(next)) {
-      matched = c.unit;
-      break;
+  // Find every quantity occurrence in the string and try to identify a unit
+  // immediately after it. We pick the FIRST quantity whose unit we recognize,
+  // falling back to the first quantity overall if nothing matches.
+  // Quantity pattern handles: 200 / 1.5 / 0,5 / 1/2 / ½ / 1 1/2 / 1 ½
+  const qtyRegex = /(?:(\d+)\s+(\d+)\/(\d+))|(?:(\d+)\s*([½¼¾⅓⅔⅛⅜⅝⅞]))|(?:(\d+)\/(\d+))|([½¼¾⅓⅔⅛⅜⅝⅞])|(\d+(?:[.,]\d+)?)/g;
+
+  let firstQty = NaN;
+  let firstMatch = null;
+  let m;
+  while ((m = qtyRegex.exec(s)) !== null) {
+    let qty;
+    if (m[1] && m[2] && m[3]) qty = parseInt(m[1]) + parseInt(m[2]) / parseInt(m[3]);
+    else if (m[4] && m[5])    qty = parseInt(m[4]) + _UNICODE_FRACTIONS[m[5]];
+    else if (m[6] && m[7])    qty = parseInt(m[6]) / parseInt(m[7]);
+    else if (m[8])            qty = _UNICODE_FRACTIONS[m[8]];
+    else if (m[9])            qty = parseFloat(m[9].replace(',', '.'));
+    if (isNaN(qty) || qty <= 0) continue;
+    if (isNaN(firstQty)) firstQty = qty;
+
+    // Look for a unit token starting right after this quantity
+    const after = s.slice(m.index + m[0].length).replace(/^[\s.,\-–—]+/, '');
+    for (const c of candidates) {
+      const t = c.token;
+      if (!after.startsWith(t)) continue;
+      const next = after.charAt(t.length);
+      if (next === '' || /[\s.,;:]/.test(next) || !/[а-яіїєґa-z]/.test(next)) {
+        firstMatch = { qty, unit: c.unit };
+        break;
+      }
     }
+    if (firstMatch) break;
   }
 
-  if (matched) {
-    // Per-food override
-    if (food?.unitWeights && food.unitWeights[matched.name]) {
-      return qty * food.unitWeights[matched.name];
-    }
-    // 'шт' → use the food's own pieceWeight when set
-    if (matched.name === 'шт' && food?.pieceWeight) {
-      return qty * food.pieceWeight;
-    }
-    // 'зубчик' → if food is garlic and has pieceWeight, prefer that
-    if (matched.name === 'зубчик' && food?.pieceWeight) {
-      return qty * food.pieceWeight;
-    }
-    return qty * matched.g;
+  // No quantity found at all → assume 1 piece of this food if known
+  if (isNaN(firstQty)) {
+    if (food?.pieceWeight) return food.pieceWeight;
+    return 0;
   }
 
-  // No unit matched. Bare number with no unit means:
-  //   - if the food has pieceWeight → it's a piece count
-  //   - otherwise → assume grams (legacy behavior)
-  if (food?.pieceWeight) return qty * food.pieceWeight;
-  return qty;
+  if (firstMatch) {
+    const { qty, unit } = firstMatch;
+    if (food?.unitWeights && food.unitWeights[unit.name]) return qty * food.unitWeights[unit.name];
+    if (unit.name === 'шт' && food?.pieceWeight)     return qty * food.pieceWeight;
+    if (unit.name === 'зубчик' && food?.pieceWeight) return qty * food.pieceWeight;
+    return qty * unit.g;
+  }
+
+  // Number found but no unit attached. Treat as piece count if food has
+  // pieceWeight, otherwise as grams.
+  if (food?.pieceWeight) return firstQty * food.pieceWeight;
+  return firstQty;
 }
 
 // Backwards-compat shim — old call sites without food context.
