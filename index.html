@@ -452,6 +452,26 @@
       </div>
     </div>
 
+    <!-- LINK INGREDIENT TO EXISTING PRODUCT MODAL -->
+    <div class="pe-modal" id="linkIngredientModal" onclick="closeLinkIngredientModal()">
+      <div class="pe-sheet" onclick="event.stopPropagation()">
+        <div class="pe-drag"></div>
+        <div class="pe-head">
+          <div class="pe-title">🔗 Привʼязати «<span id="liStem"></span>»</div>
+          <button class="pe-close" onclick="closeLinkIngredientModal()">×</button>
+        </div>
+        <div class="pe-body">
+          <div class="pe-field">
+            <div style="font-size:11px;color:var(--muted);line-height:1.5;margin-bottom:8px">Обери продукт у довіднику. Усі рецепти що містять цей інгредієнт почнуть лінкувати на нього автоматично.</div>
+            <input class="pe-input" id="liFilter" placeholder="Пошук продукту..." oninput="filterLinkProducts()">
+          </div>
+          <div class="pe-field">
+            <div id="liList" class="ap-silpo-list" style="display:flex;max-height:340px"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- ADD PRODUCT MODAL (used by missing-ings panel) -->
     <div class="pe-modal" id="addProductModal" onclick="closeAddProductModal()">
       <div class="pe-sheet" onclick="event.stopPropagation()">

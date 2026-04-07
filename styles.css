@@ -547,6 +547,8 @@ body{background:var(--bg);color:var(--text);font-family:'Golos Text',sans-serif;
 .ap-silpo-item.selected{border-color:var(--accent);background:rgba(200,245,74,.12);}
 .mip-add{background:rgba(96,165,250,.12);color:#60a5fa;border:1px solid rgba(96,165,250,.3);}
 .mip-add:hover{background:rgba(96,165,250,.2);}
+.mip-link{background:rgba(168,85,247,.12);color:#c084fc;border:1px solid rgba(168,85,247,.3);}
+.mip-link:hover{background:rgba(168,85,247,.2);}
 .mip-staple{background:rgba(200,245,74,.12);color:var(--accent);border:1px solid rgba(200,245,74,.3);}
 .mip-staple:hover{background:rgba(200,245,74,.2);}
 .mip-del{background:rgba(239,68,68,.12);color:#ef4444;border:1px solid rgba(239,68,68,.3);}

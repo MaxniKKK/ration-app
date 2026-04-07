@@ -574,6 +574,11 @@ function initFirebase(cfg) {
         set(ref(db, 'racion/pieceUnits'), PIECE_UNITS).catch(() => {});
       }
     });
+    // Manual ingredient aliases (stem → productKey)
+    onValue(ref(db, 'racion/ingredientAliases'), (snap) => {
+      const obj = snap.val();
+      INGREDIENT_ALIASES = (obj && typeof obj === 'object') ? obj : {};
+    });
     // Staples (stems) — single editable Firebase list, seeded on first load
     onValue(ref(db, 'racion/staples'), (snap) => {
       const arr = snap.val();
@@ -3638,6 +3643,11 @@ const DEFAULT_STAPLES_SEED = [
 // Live staples set — loaded from racion/staples on init, mutated via UI.
 let STAPLES = new Set(DEFAULT_STAPLES_SEED);
 
+// Manual ingredient → product aliases. Map<dominantStem, productKey>.
+// Loaded from racion/ingredientAliases on init. Lets the user override the
+// stem-based matcher by linking a missing ingredient to a specific product.
+let INGREDIENT_ALIASES = {};
+
 // OPTIONAL ingredients — spices, oils, vinegar, herbs, etc. The user said
 // these SHOULD be linked to products if available, but should NOT block a
 // recipe from passing the whitelist threshold (they're "nice to have").
@@ -3912,10 +3922,21 @@ function analyzeRecipeCoverage(recipe, productEntries) {
   const linked = [];
   for (const ing of ings) {
     const parsed = parseIngredientName(ing);
-    // 1. Try linking against a real product (used by both staple and required paths)
+    // 1. Manual alias takes precedence: if user explicitly linked this stem
+    //    to a product, use it without further matching.
     let foundProd = null;
-    for (const prod of productEntries) {
-      if (ingredientMatchesProduct(ing, prod.name)) { foundProd = prod; break; }
+    const stem = dominantStem(parsed);
+    if (stem && INGREDIENT_ALIASES[stem]) {
+      const aliased = FOODS[INGREDIENT_ALIASES[stem]];
+      if (aliased) {
+        foundProd = { key: INGREDIENT_ALIASES[stem], name: aliased.name };
+      }
+    }
+    // 2. Otherwise fall back to stem-based fuzzy matching
+    if (!foundProd) {
+      for (const prod of productEntries) {
+        if (ingredientMatchesProduct(ing, prod.name)) { foundProd = prod; break; }
+      }
     }
     // 2. Staple-like (TRUE ∪ OPTIONAL ∪ CUSTOM) — never blocks coverage,
     //    but still linked to a product if one happens to exist
@@ -4035,6 +4056,7 @@ window.renderMissingIngsPanel = function() {
       <span class="mip-label" title="stem: ${e.stem}">${escapeHtml(e.label)}</span>
       <span class="mip-count">${e.count}</span>
       <button class="mip-btn mip-add" onclick="openAddProductModal('${escapeHtml(e.label).replace(/'/g,'&#39;')}','${e.stem}')" title="Додати як новий продукт у довідник">+ Продукт</button>
+      <button class="mip-btn mip-link" onclick="openLinkIngredientModal('${e.stem}','${escapeHtml(e.label).replace(/'/g,'&#39;')}')" title="Привʼязати до існуючого продукту">🔗 Привʼязати</button>
       <button class="mip-btn mip-staple" onclick="markMissingAsStaple('${e.stem}')" title="Додати ${e.stem} у список staples">✓ Staple</button>
       <button class="mip-btn mip-del" onclick="deleteRecipesContainingStem('${e.stem}')" title="Видалити всі ${e.count} рецептів">🗑 ${e.count}</button>
     </div>
@@ -4043,6 +4065,57 @@ window.renderMissingIngsPanel = function() {
 
 window.filterMissingIngs = function() {
   renderMissingIngsPanel();
+};
+
+// ── LINK INGREDIENT TO EXISTING PRODUCT MODAL ───────────────────────────
+let _linkingStem = null;
+window.openLinkIngredientModal = function(stem, label) {
+  _linkingStem = stem;
+  document.getElementById('liStem').textContent = label;
+  document.getElementById('liFilter').value = '';
+  renderLinkProductList('');
+  document.getElementById('linkIngredientModal').classList.add('on');
+  setTimeout(() => document.getElementById('liFilter').focus(), 120);
+};
+window.closeLinkIngredientModal = function() {
+  document.getElementById('linkIngredientModal').classList.remove('on');
+  _linkingStem = null;
+};
+window.filterLinkProducts = function() {
+  renderLinkProductList(document.getElementById('liFilter').value);
+};
+function renderLinkProductList(filter) {
+  const list = document.getElementById('liList');
+  if (!list) return;
+  const q = (filter || '').toLowerCase().trim();
+  const products = Object.entries(FOODS)
+    .filter(([k, f]) => f && f.type !== 'recipe' && f.name)
+    .filter(([k, f]) => !q || f.name.toLowerCase().includes(q))
+    .sort((a, b) => a[1].name.localeCompare(b[1].name, 'uk'))
+    .slice(0, 100);
+  if (!products.length) {
+    list.innerHTML = `<div style="text-align:center;padding:14px;color:var(--muted);font-size:11px">${q ? 'Нічого не знайдено' : 'У довіднику немає продуктів'}</div>`;
+    return;
+  }
+  list.innerHTML = products.map(([k, f]) => `
+    <div class="ap-silpo-item" onclick="confirmLinkIngredient('${k}', '${escapeHtml(f.name).replace(/'/g,'&#39;')}')">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:11px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(f.name)}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">${(f.kcal || 0)} ккал · Б ${f.protein || 0} · Ж ${f.fat || 0} · В ${f.carbs || 0}</div>
+      </div>
+    </div>
+  `).join('');
+}
+window.confirmLinkIngredient = async function(productKey, productName) {
+  if (!_linkingStem || !productKey) return;
+  INGREDIENT_ALIASES[_linkingStem] = productKey;
+  if (db) {
+    try { await set(ref(db, 'racion/ingredientAliases'), INGREDIENT_ALIASES); }
+    catch (e) { console.warn('[alias]', e); }
+  }
+  showToast(`Привʼязано: ${_linkingStem} → ${productName}`);
+  closeLinkIngredientModal();
+  runRecipeCoverageAnalysis();
 };
 
 // ── ADD PRODUCT MODAL (in-place, used by missing-ings panel) ────────────
