@@ -3970,6 +3970,7 @@ let _recipeWhitelistFilterOn = false;
 // Aggregated missing-ingredients index, populated by runRecipeCoverageAnalysis.
 // Map<dominantStem, { stem, label, count, recipeKeys: Set<string> }>
 let _missingIngsIndex = new Map();
+let _mipSelected = new Set();
 
 window.runRecipeCoverageAnalysis = function() {
   const products = Object.entries(FOODS)
@@ -4051,16 +4052,82 @@ window.renderMissingIngsPanel = function() {
     list.innerHTML = `<div class="mip-empty">Немає відсутніх інгредієнтів — або всі помічені як staple.</div>`;
     return;
   }
-  list.innerHTML = rows.map(e => `
-    <div class="mip-row">
+  // Selection toolbar — only renders when something is selected
+  const selCount = _mipSelected.size;
+  const selToolbar = selCount
+    ? `<div class="mip-sel-bar">
+        <span>Обрано: ${selCount}</span>
+        <button class="mip-btn mip-staple" onclick="bulkSelectedStaple()">✓ Staple</button>
+        <button class="mip-btn mip-del" onclick="bulkSelectedDelete()">🗑 Видалити рецепти</button>
+        <button class="mip-btn" onclick="mipClearSelection()">×</button>
+      </div>`
+    : `<div class="mip-sel-bar mip-sel-bar-empty">
+        <button class="mip-btn" onclick="mipSelectAll()">Обрати всі</button>
+      </div>`;
+  list.innerHTML = selToolbar + rows.map(e => {
+    const checked = _mipSelected.has(e.stem) ? 'checked' : '';
+    return `
+    <div class="mip-row${_mipSelected.has(e.stem) ? ' selected' : ''}">
+      <input type="checkbox" class="mip-cbx" ${checked} onchange="mipToggleSelect('${e.stem}')">
       <span class="mip-label" title="stem: ${e.stem}">${escapeHtml(e.label)}</span>
       <span class="mip-count">${e.count}</span>
-      <button class="mip-btn mip-add" onclick="openAddProductModal('${escapeHtml(e.label).replace(/'/g,'&#39;')}','${e.stem}')" title="Додати як новий продукт у довідник">+ Продукт</button>
-      <button class="mip-btn mip-link" onclick="openLinkIngredientModal('${e.stem}','${escapeHtml(e.label).replace(/'/g,'&#39;')}')" title="Привʼязати до існуючого продукту">🔗 Привʼязати</button>
-      <button class="mip-btn mip-staple" onclick="markMissingAsStaple('${e.stem}')" title="Додати ${e.stem} у список staples">✓ Staple</button>
-      <button class="mip-btn mip-del" onclick="deleteRecipesContainingStem('${e.stem}')" title="Видалити всі ${e.count} рецептів">🗑 ${e.count}</button>
-    </div>
-  `).join('');
+      <button class="mip-btn mip-add" onclick="openAddProductModal('${escapeHtml(e.label).replace(/'/g,'&#39;')}','${e.stem}')" title="Додати як новий продукт">+</button>
+      <button class="mip-btn mip-link" onclick="openLinkIngredientModal('${e.stem}','${escapeHtml(e.label).replace(/'/g,'&#39;')}')" title="Привʼязати">🔗</button>
+      <button class="mip-btn mip-staple" onclick="markMissingAsStaple('${e.stem}')" title="Staple">✓</button>
+      <button class="mip-btn mip-del" onclick="deleteRecipesContainingStem('${e.stem}')" title="Видалити ${e.count} рецептів">🗑 ${e.count}</button>
+    </div>`;
+  }).join('');
+};
+
+window.mipToggleSelect = function(stem) {
+  if (_mipSelected.has(stem)) _mipSelected.delete(stem);
+  else _mipSelected.add(stem);
+  renderMissingIngsPanel();
+};
+window.mipClearSelection = function() {
+  _mipSelected.clear();
+  renderMissingIngsPanel();
+};
+window.mipSelectAll = function() {
+  const filter = (document.getElementById('mipFilter')?.value || '').trim().toLowerCase();
+  for (const e of _missingIngsIndex.values()) {
+    if (!filter || e.label.toLowerCase().includes(filter) || e.stem.includes(filter)) {
+      _mipSelected.add(e.stem);
+    }
+  }
+  renderMissingIngsPanel();
+};
+window.bulkSelectedStaple = async function() {
+  if (!_mipSelected.size) return;
+  for (const stem of _mipSelected) STAPLES.add(stem);
+  await persistStaples();
+  showToast(`${_mipSelected.size} стемів додано як staples`);
+  _mipSelected.clear();
+  runRecipeCoverageAnalysis();
+};
+window.bulkSelectedDelete = function() {
+  if (!_mipSelected.size) return;
+  // Union of recipe keys across all selected stems
+  const allKeys = new Set();
+  const stems = [..._mipSelected];
+  for (const stem of stems) {
+    const e = _missingIngsIndex.get(stem);
+    if (e) for (const k of e.recipeKeys) allKeys.add(k);
+  }
+  showConfirm({
+    icon: '🗑',
+    title: `Видалити ${allKeys.size} рецептів?`,
+    text: `Будуть видалені усі рецепти що містять будь-який з ${stems.length} обраних інгредієнтів. Це не можна відмінити.`,
+    actions: [
+      { label: `Видалити ${allKeys.size}`, style: 'danger', onClick: async () => {
+        await doDeleteRecipesByKeys([...allKeys], null);
+        for (const stem of stems) _missingIngsIndex.delete(stem);
+        _mipSelected.clear();
+        renderMissingIngsPanel();
+      }},
+      { label: 'Скасувати', style: 'cancel' },
+    ],
+  });
 };
 
 window.filterMissingIngs = function() {
