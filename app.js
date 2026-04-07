@@ -1500,11 +1500,12 @@ window.saveRecipeNow = async function(recipeKey) {
   // Validation: every recipe must have at least one meal-type tag.
   if (recipe.type === 'recipe' && (!recipe.tags || !recipe.tags.length)) {
     showToast('Обери хоча б один прийом їжі для рецепта', 'err');
-    // Highlight the tags row briefly so the user sees where to click
     const tagsEl = document.getElementById('pcardTagsSection');
     if (tagsEl) {
-      tagsEl.style.outline = '2px solid #ef4444';
-      setTimeout(() => { tagsEl.style.outline = ''; }, 1500);
+      tagsEl.classList.remove('shake');
+      void tagsEl.offsetWidth; // restart animation
+      tagsEl.classList.add('shake');
+      setTimeout(() => tagsEl.classList.remove('shake'), 600);
     }
     return;
   }
@@ -5110,7 +5111,17 @@ window.saveManualRecipe = async function() {
   const ingsRaw = document.getElementById('mrIngs').value.trim();
   if (!name) { showToast('Назва обовʼязкова', 'err'); return; }
   if (!ingsRaw) { showToast('Додай хоча б один інгредієнт', 'err'); return; }
-  if (!_mrSelectedTags.size) { showToast('Обери хоча б один прийом їжі', 'err'); return; }
+  if (!_mrSelectedTags.size) {
+    showToast('Обери хоча б один прийом їжі', 'err');
+    const el = document.getElementById('mrTags');
+    if (el) {
+      el.classList.remove('shake');
+      void el.offsetWidth;
+      el.classList.add('shake');
+      setTimeout(() => el.classList.remove('shake'), 600);
+    }
+    return;
+  }
   const ingredients = ingsRaw.split('\n').map(s => s.trim()).filter(Boolean);
   const servings = parseInt(document.getElementById('mrServings').value) || null;
   const image = document.getElementById('mrImage').value.trim() || null;
