@@ -1506,15 +1506,21 @@ window.saveRecipeNow = async function(recipeKey) {
   // Validate linkedIngredients: every NON-staple, NON-optional row must be
   // linked to a product AND have a positive grams value. Staples (сіль/перець
   // тощо) and optional ingredients can stay missing/zero.
-  if (recipe.type === 'recipe') {
-    console.log('[saveRecipeNow] linkedIngredients:', recipe.linkedIngredients);
+  console.log('[saveRecipeNow] called for', recipeKey, 'type:', recipe.type);
+  // Lazy-compute linkedIngredients if missing so validation always runs
+  if (recipe.type === 'recipe' && Array.isArray(recipe.ingredients) && recipe.ingredients.length && !Array.isArray(recipe.linkedIngredients)) {
+    const products = Object.entries(FOODS)
+      .filter(([k, f]) => f && f.type !== 'recipe' && f.name)
+      .map(([k, f]) => ({ key: k, name: f.name }));
+    recipe.linkedIngredients = analyzeRecipeCoverage(recipe, products).linked;
+    console.log('[saveRecipeNow] lazy-computed linkedIngredients');
   }
   if (recipe.type === 'recipe' && Array.isArray(recipe.linkedIngredients)) {
     const kindCounts = recipe.linkedIngredients.reduce((acc, l) => {
       acc[l.kind] = (acc[l.kind] || 0) + 1;
       return acc;
     }, {});
-    console.log('[saveRecipeNow] kinds:', kindCounts);
+    console.log('[saveRecipeNow] kinds:', kindCounts, 'sample:', recipe.linkedIngredients.slice(0, 3));
     const ingsEl = document.getElementById('pcardIngsSection');
     const shakeIngs = () => {
       // Scroll first so the section is in view, THEN shake.
