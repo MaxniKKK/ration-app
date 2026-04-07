@@ -773,6 +773,7 @@ function renderMeals() {
   const day = MENU[person][curDay];
   for (const m of pmeals) {
     if (!day[m.key]) day[m.key] = { kcal: 0, items: [] };
+    else if (!Array.isArray(day[m.key].items)) day[m.key].items = [];
   }
   pmeals.forEach((m, idx) => {
     const meal = MENU[person][curDay][m.key];
