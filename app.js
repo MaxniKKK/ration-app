@@ -1497,6 +1497,17 @@ window.updateRecipeIngredientGrams = function(recipeKey, ingIdx, value) {
 window.saveRecipeNow = async function(recipeKey) {
   const recipe = FOODS[recipeKey];
   if (!recipe) return;
+  // Validation: every recipe must have at least one meal-type tag.
+  if (recipe.type === 'recipe' && (!recipe.tags || !recipe.tags.length)) {
+    showToast('Обери хоча б один прийом їжі для рецепта', 'err');
+    // Highlight the tags row briefly so the user sees where to click
+    const tagsEl = document.getElementById('pcardTagsSection');
+    if (tagsEl) {
+      tagsEl.style.outline = '2px solid #ef4444';
+      setTimeout(() => { tagsEl.style.outline = ''; }, 1500);
+    }
+    return;
+  }
   const btn = document.getElementById('pcardSaveBtn');
   const origHtml = btn?.innerHTML;
   if (btn) {
@@ -4765,24 +4776,18 @@ function groupRecipesByCategory() {
     recipes: [],
   }));
   const byType = Object.fromEntries(buckets.map(b => [b.type, b]));
-  const uncategorized = { name: 'Без категорії', type: '__none__', icon: '❓', recipes: [] };
 
   for (const [key, food] of Object.entries(FOODS)) {
     if (!food || food.type !== 'recipe') continue;
     if (_recipeWhitelistFilterOn && !food._whitelisted) continue;
     const tags = food.tags || [];
-    if (!tags.length) {
-      uncategorized.recipes.push({ key, food });
-      continue;
-    }
+    if (!tags.length) continue;
     for (const t of tags) {
       const bucket = byType[t];
       if (bucket) bucket.recipes.push({ key, food });
     }
   }
-
-  // Surface uncategorized at top so newly imported recipes are visible.
-  return uncategorized.recipes.length ? [uncategorized, ...buckets] : buckets;
+  return buckets;
 }
 
 // Build the small coverage badge HTML for a recipe item.
@@ -5073,14 +5078,29 @@ async function importRecipeFromUrl(url) {
 }
 
 // ── MANUAL RECIPE CREATION ──────────────────────────────────────────────
+let _mrSelectedTags = new Set();
 window.openManualRecipeModal = function() {
   document.getElementById('mrName').value = '';
   document.getElementById('mrIngs').value = '';
   document.getElementById('mrServings').value = '2';
   document.getElementById('mrImage').value = '';
   document.getElementById('mrCategory').value = '';
+  _mrSelectedTags = new Set();
+  renderMrTags();
   document.getElementById('manualRecipeModal').classList.add('on');
   setTimeout(() => document.getElementById('mrName').focus(), 120);
+};
+function renderMrTags() {
+  const el = document.getElementById('mrTags');
+  if (!el) return;
+  el.innerHTML = MEAL_TAGS.map(t => `
+    <button type="button" class="mr-tag${_mrSelectedTags.has(t.key) ? ' active' : ''}" onclick="toggleMrTag('${t.key}')">${t.label}</button>
+  `).join('');
+}
+window.toggleMrTag = function(key) {
+  if (_mrSelectedTags.has(key)) _mrSelectedTags.delete(key);
+  else _mrSelectedTags.add(key);
+  renderMrTags();
 };
 window.closeManualRecipeModal = function() {
   document.getElementById('manualRecipeModal').classList.remove('on');
@@ -5090,6 +5110,7 @@ window.saveManualRecipe = async function() {
   const ingsRaw = document.getElementById('mrIngs').value.trim();
   if (!name) { showToast('Назва обовʼязкова', 'err'); return; }
   if (!ingsRaw) { showToast('Додай хоча б один інгредієнт', 'err'); return; }
+  if (!_mrSelectedTags.size) { showToast('Обери хоча б один прийом їжі', 'err'); return; }
   const ingredients = ingsRaw.split('\n').map(s => s.trim()).filter(Boolean);
   const servings = parseInt(document.getElementById('mrServings').value) || null;
   const image = document.getElementById('mrImage').value.trim() || null;
@@ -5103,7 +5124,7 @@ window.saveManualRecipe = async function() {
     sourceImage: image,
     source: 'manual',
     category,
-    tags: [],
+    tags: [..._mrSelectedTags],
   };
   const key = foodKey(name);
   FOODS[key] = food;
