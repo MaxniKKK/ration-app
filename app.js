@@ -1553,11 +1553,15 @@ window.openPCard = function(key) {
   } else if (food.type === 'recipe' && Array.isArray(food.ingredients) && food.ingredients.length) {
     let linked = food.linkedIngredients;
     if (!Array.isArray(linked)) {
-      // Lazy compute on first card open after a fresh load
+      // Lazy compute on first card open after a fresh load.
+      // CRITICAL: write back to food.linkedIngredients (and persist) so that
+      // click handlers like openManualLinkIngredient can find the array.
       const products = Object.entries(FOODS)
         .filter(([k, f]) => f && f.type !== 'recipe' && f.name)
         .map(([k, f]) => ({ key: k, name: f.name }));
       linked = analyzeRecipeCoverage(food, products).linked;
+      food.linkedIngredients = linked;
+      if (db) set(ref(db, 'racion/foods/' + key), food).catch(() => {});
     }
     const matchedCount  = linked.filter(l => l.kind === 'linked' && !l.optional).length;
     const optionalLinked = linked.filter(l => l.kind === 'linked' && l.optional).length;
