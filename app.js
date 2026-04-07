@@ -1492,18 +1492,41 @@ window.updateRecipeIngredientGrams = function(recipeKey, ingIdx, value) {
   }, 400);
 };
 
-// Explicit save button — flushes any pending debounced write immediately
-// and shows a toast confirming the recipe is saved.
+// Explicit save button — flushes any pending debounced write immediately,
+// shows visible button feedback, then closes the product card.
 window.saveRecipeNow = async function(recipeKey) {
   const recipe = FOODS[recipeKey];
   if (!recipe) return;
+  const btn = document.getElementById('pcardSaveBtn');
+  const origHtml = btn?.innerHTML;
+  if (btn) {
+    btn.disabled = true;
+    btn.classList.add('saving');
+    btn.classList.remove('dirty');
+    btn.innerHTML = '⏳ Зберігаю...';
+  }
   clearTimeout(_gramsUpdateTimer);
   _gramsUpdateTimer = null;
   try {
     if (db) await set(ref(db, 'racion/foods/' + recipeKey), recipe);
     _markRecipeClean();
+    if (btn) btn.innerHTML = '✓ Збережено';
     showToast('Рецепт збережено ✓');
+    // Brief pause so user sees the confirmation, then close
+    setTimeout(() => {
+      if (btn) {
+        btn.disabled = false;
+        btn.classList.remove('saving');
+        btn.innerHTML = origHtml || '💾 Зберегти';
+      }
+      closePCard();
+    }, 600);
   } catch (e) {
+    if (btn) {
+      btn.disabled = false;
+      btn.classList.remove('saving');
+      btn.innerHTML = origHtml || '💾 Зберегти';
+    }
     showToast('Помилка збереження: ' + e.message, 'err');
   }
 };
