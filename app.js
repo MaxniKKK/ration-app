@@ -2268,11 +2268,12 @@ async function autoFillWeek(mode = null) {
     renderFoodsDir();
     setTimeout(() => overlay.classList.remove('on'), 2400);
   } catch (e) {
+    console.error('[autoFillWeek] failed:', e, e?.stack);
     overlay.classList.remove('on');
     showConfirm({
       icon: '⚠️',
       title: 'Помилка генерації',
-      text: e.message || String(e),
+      text: (e.message || String(e)) + '\n\nДеталі у консолі (F12).',
       actions: [{ label: 'Зрозуміло', style: 'primary' }],
     });
   }
