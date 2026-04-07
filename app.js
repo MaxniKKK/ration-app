@@ -4233,6 +4233,16 @@ function analyzeRecipeCoverage(recipe, productEntries) {
       linked.push({ raw: ing, kind: 'missing' });
     }
   }
+  // Eager-compute grams for every linked entry that doesn't already have an
+  // explicit override. Stored on the entry so the recipe carries authoritative
+  // gram weights instead of relying on lazy parse-on-render.
+  for (const l of linked) {
+    if (l.kind !== 'linked' || !l.productKey) continue;
+    if (typeof l.grams === 'number' && l.grams > 0) continue;
+    const food = FOODS[l.productKey];
+    const g = parseQuantityToGrams(l.raw, food);
+    if (g > 0) l.grams = g;
+  }
   return { matched, total, ratio: total > 0 ? matched / total : 1, missing, skipped: ings.length - total, linked };
 }
 
@@ -4530,7 +4540,7 @@ window.confirmLinkIngredient = async function(productKey, productName) {
     const recipe = FOODS[recipeKey];
     if (recipe && Array.isArray(recipe.linkedIngredients) && recipe.linkedIngredients[ingIdx]) {
       const ing = recipe.linkedIngredients[ingIdx];
-      recipe.linkedIngredients[ingIdx] = {
+      const newEntry = {
         raw: ing.raw,
         kind: 'linked',
         productKey,
@@ -4538,6 +4548,10 @@ window.confirmLinkIngredient = async function(productKey, productName) {
         optional: ing.kind === 'optional',
         manual: true,
       };
+      // Auto-compute grams from the raw text using the new product's units
+      const g = parseQuantityToGrams(ing.raw, FOODS[productKey]);
+      if (g > 0) newEntry.grams = g;
+      recipe.linkedIngredients[ingIdx] = newEntry;
       recomputeRecipeNutrition(recipe);
       if (db) await set(ref(db, 'racion/foods/' + recipeKey), recipe);
     }
