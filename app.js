@@ -170,11 +170,33 @@ const PIECE_UNITS = [
   { stem: 'кабачк',   g: 250, unit: 'шт' },
 ];
 
-// Returns { g, unit } for a product name, or null if measured in grams.
-function getPieceInfo(name) {
+// Returns { g, unit } matched by name stem, or null if no rule matches.
+// This is the SEED — used once per food when first added to the directory.
+function matchPieceUnitByName(name) {
   if (!name) return null;
   const n = String(name).toLowerCase();
   return PIECE_UNITS.find(p => n.includes(p.stem)) || null;
+}
+
+// Auto-fill pieceWeight/pieceUnit on a FOODS entry if missing and a name
+// rule matches. Idempotent — never overwrites existing values, so once a
+// product is set (manually or automatically) the choice sticks.
+function seedFoodPieceUnit(food) {
+  if (!food || food.pieceWeight) return;
+  const m = matchPieceUnitByName(food.name);
+  if (!m) return;
+  food.pieceWeight = m.g;
+  food.pieceUnit   = m.unit;
+}
+
+// Authoritative: read piece info from a FOODS record. Falls back to a
+// name-rule match for legacy entries that haven't been seeded yet.
+function getFoodPieceInfo(food) {
+  if (!food) return null;
+  if (food.pieceWeight && food.pieceUnit) {
+    return { g: food.pieceWeight, unit: food.pieceUnit };
+  }
+  return matchPieceUnitByName(food.name);
 }
 
 // Lookup an ingredient by name across all categories
@@ -213,6 +235,7 @@ function ensureFoodInDirectory(name) {
       source: 'auto',
     };
   }
+  seedFoodPieceUnit(FOODS[key]);
   if (db) set(ref(db, 'racion/foods/' + key), FOODS[key]).catch(() => {});
   return FOODS[key];
 }
@@ -518,7 +541,22 @@ function initFirebase(cfg) {
     const foodsRef = ref(db, "racion/foods");
     onValue(foodsRef, (snap) => {
       const val = snap.val();
-      if (val) FOODS = val;
+      if (val) {
+        FOODS = val;
+        // Auto-seed pieceWeight/pieceUnit on any food that matches a name rule
+        // and doesn't yet have one. Persists back to Firebase so the seed is
+        // a one-time event per product.
+        const toPersist = [];
+        for (const [k, f] of Object.entries(FOODS)) {
+          if (!f || f.pieceWeight) continue;
+          const had = !!f.pieceWeight;
+          seedFoodPieceUnit(f);
+          if (!had && f.pieceWeight) toPersist.push(k);
+        }
+        for (const k of toPersist) {
+          if (db) set(ref(db, 'racion/foods/' + k), FOODS[k]).catch(() => {});
+        }
+      }
       // Refresh directory if it's open
       const searchScreen = document.getElementById('screen-search');
       if (searchScreen?.classList.contains('active')) renderFoodsDir();
@@ -4368,8 +4406,11 @@ function generateMenuLocally(pid) {
       const items = linkedItems.map(({ l, product, grams }) => {
         const name = l.productName || product.name || l.raw;
         let scaledG = Math.max(5, Math.round(grams * scale / 5) * 5);
-        // Snap piece-unit products (eggs, bananas, bread slices…) to whole pieces
-        const pi = getPieceInfo(name);
+        // Snap piece-unit products (eggs, bananas, bread slices…) to whole pieces.
+        // Source of truth is the FOODS record (pieceWeight/pieceUnit), seeded
+        // by name on first encounter — so user-typed name variants don't matter.
+        seedFoodPieceUnit(product);
+        const pi = getFoodPieceInfo(product);
         let pieces = null;
         if (pi) {
           pieces = Math.max(1, Math.round(scaledG / pi.g));
