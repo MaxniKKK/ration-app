@@ -1505,6 +1505,8 @@ window.openPCard = function(key) {
               <span class="pcard-ing-icon linked" title="${l.optional ? 'Опціональний інгредієнт, привʼязаний' : 'Привʼязано до продукту'}">●</span>
               <span class="pcard-ing-raw">${escapeHtml(l.raw)}</span>
               <a class="pcard-ing-link" onclick="event.stopPropagation();openPCard('${l.productKey}')">→ ${escapeHtml(l.productName || '')}</a>
+              <button class="pcard-ing-link-btn" onclick="event.stopPropagation();openManualLinkIngredient('${key}',${idx})" title="Перепривʼязати до іншого продукту">✏️</button>
+              <button class="pcard-ing-link-btn" onclick="event.stopPropagation();unlinkRecipeIngredient('${key}',${idx})" title="Відвʼязати">×</button>
             </li>`;
           }
           if (l.kind === 'staple') {
@@ -1568,6 +1570,24 @@ window.openPCard = function(key) {
     <button class="pcard-del-btn" title="Видалити" onclick="confirmDeletePCardFood('${key}')">🗑</button>`;
 
   document.getElementById('pcardModal').classList.add('on');
+};
+
+// Remove an existing manual/auto link from a recipe ingredient — turns it
+// back into 'missing' (or 'optional' if it was originally optional). The
+// user can then re-link it via the same modal flow.
+window.unlinkRecipeIngredient = function(recipeKey, ingIdx) {
+  const recipe = FOODS[recipeKey];
+  if (!recipe || !Array.isArray(recipe.linkedIngredients)) return;
+  const ing = recipe.linkedIngredients[ingIdx];
+  if (!ing || ing.kind !== 'linked') return;
+  recipe.linkedIngredients[ingIdx] = {
+    raw: ing.raw,
+    kind: ing.optional ? 'optional' : 'missing',
+  };
+  recomputeRecipeNutrition(recipe);
+  if (db) set(ref(db, 'racion/foods/' + recipeKey), recipe).catch(() => {});
+  showToast('Відвʼязано');
+  openPCard(recipeKey);
 };
 
 // Manually link a recipe ingredient to a product from the directory.
