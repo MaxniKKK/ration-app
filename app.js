@@ -636,15 +636,24 @@ function initFirebase(cfg) {
       const obj = snap.val();
       INGREDIENT_ALIASES = (obj && typeof obj === 'object') ? obj : {};
     });
-    // Staples (stems) — single editable Firebase list, seeded on first load
+    // Staples — supports both legacy (string[]) and new (object[]) formats.
+    // Auto-migrates strings to { stem, aliases:[] } objects.
     onValue(ref(db, 'racion/staples'), (snap) => {
       const arr = snap.val();
       if (Array.isArray(arr) && arr.length) {
-        STAPLES = new Set(arr);
+        STAPLES_DATA = arr.map(x => {
+          if (typeof x === 'string') return { stem: x, aliases: [] };
+          return { stem: String(x?.stem || ''), aliases: Array.isArray(x?.aliases) ? x.aliases : [] };
+        }).filter(e => e.stem);
+        // If we just up-migrated from a string[] format, persist the new shape
+        if (arr.some(x => typeof x === 'string')) {
+          set(ref(db, 'racion/staples'), STAPLES_DATA).catch(() => {});
+        }
       } else {
-        STAPLES = new Set(DEFAULT_STAPLES_SEED);
-        set(ref(db, 'racion/staples'), [...STAPLES]).catch(() => {});
+        STAPLES_DATA = DEFAULT_STAPLES_SEED.map(s => ({ stem: s, aliases: [] }));
+        set(ref(db, 'racion/staples'), STAPLES_DATA).catch(() => {});
       }
+      rebuildStaplesFlat();
     });
     const foodsRef = ref(db, "racion/foods");
     onValue(foodsRef, (snap) => {
@@ -3750,8 +3759,39 @@ const DEFAULT_STAPLES_SEED = [
   'часник', 'часн', 'часнк', 'зубчик', 'зубч', 'зубк',
 ];
 
-// Live staples set — loaded from racion/staples on init, mutated via UI.
+// Staples are stored as an array of { stem, aliases[] } so the editor can
+// group related variants. The flat Set is the runtime lookup used by
+// isStapleLike — rebuilt from STAPLES_DATA whenever it changes.
+let STAPLES_DATA = DEFAULT_STAPLES_SEED.map(s => ({ stem: s, aliases: [] }));
 let STAPLES = new Set(DEFAULT_STAPLES_SEED);
+function rebuildStaplesFlat() {
+  STAPLES = new Set();
+  for (const e of STAPLES_DATA) {
+    if (!e || !e.stem) continue;
+    STAPLES.add(e.stem);
+    if (Array.isArray(e.aliases)) for (const a of e.aliases) if (a) STAPLES.add(a);
+  }
+}
+// Add helpers operate on STAPLES_DATA, then rebuild and persist.
+function addStapleStem(stem) {
+  if (!stem) return false;
+  if (STAPLES.has(stem)) return false;
+  STAPLES_DATA.push({ stem, aliases: [] });
+  rebuildStaplesFlat();
+  return true;
+}
+function removeStapleStem(stem) {
+  // Remove by primary stem; if it's an alias, remove from owning entry.
+  for (let i = 0; i < STAPLES_DATA.length; i++) {
+    const e = STAPLES_DATA[i];
+    if (e.stem === stem) { STAPLES_DATA.splice(i, 1); rebuildStaplesFlat(); return true; }
+    if (Array.isArray(e.aliases)) {
+      const ai = e.aliases.indexOf(stem);
+      if (ai >= 0) { e.aliases.splice(ai, 1); rebuildStaplesFlat(); return true; }
+    }
+  }
+  return false;
+}
 
 // Manual ingredient → product aliases. Map<dominantStem, productKey>.
 // Loaded from racion/ingredientAliases on init. Lets the user override the
@@ -4315,7 +4355,7 @@ window.mipSelectAll = function() {
 };
 window.bulkSelectedStaple = async function() {
   if (!_mipSelected.size) return;
-  for (const stem of _mipSelected) STAPLES.add(stem);
+  for (const stem of _mipSelected) addStapleStem(stem);
   await persistStaples();
   showToast(`${_mipSelected.size} стемів додано як staples`);
   _mipSelected.clear();
@@ -4676,22 +4716,30 @@ function persistPieceUnits() {
   if (db) set(ref(db, 'racion/pieceUnits'), PIECE_UNITS).catch(() => {});
 }
 
-// — STAPLES dict (delegates to existing modal) —
+// — STAPLES dict (object[] with alias chips per primary stem) —
 function renderStaplesDict() {
-  const all = [...STAPLES].sort();
   return `
     <div class="dict-row dict-row-add">
       <input id="newDictStaple" placeholder="новий stem (горіх)" style="flex:1" onkeydown="if(event.key==='Enter')dictAddStaple()">
       <button onclick="dictAddStaple()">+</button>
     </div>
-    <div class="staples-list" style="margin-top:8px">
-      ${all.map(s => `
-        <div class="staple-tag">
-          <span>${escapeHtml(s)}</span>
-          <button onclick="dictRemoveStaple('${s}')">×</button>
+    ${STAPLES_DATA.map((e, i) => `
+      <div class="dict-unit-block">
+        <div class="dict-row">
+          <input value="${escapeHtml(e.stem)}" oninput="dictUpdateStapleStem(${i},this.value)" style="flex:1">
+          <button onclick="dictRemoveStapleEntry(${i})" class="dict-row-del">×</button>
         </div>
-      `).join('')}
-    </div>
+        <div class="dict-chips">
+          ${(e.aliases || []).map((a, ai) => `
+            <span class="dict-chip">
+              ${escapeHtml(a)}
+              <button onclick="dictRemoveStapleAlias(${i},${ai})" title="Видалити">×</button>
+            </span>
+          `).join('')}
+          <input class="dict-chip-input" placeholder="+ alias-stem" onkeydown="if(event.key==='Enter'){dictAddStapleAlias(${i},this.value);this.value='';}" onblur="if(this.value.trim()){dictAddStapleAlias(${i},this.value);this.value='';}">
+        </div>
+      </div>
+    `).join('')}
   `;
 }
 window.dictAddStaple = function() {
@@ -4700,14 +4748,37 @@ window.dictAddStaple = function() {
   if (!raw) return;
   const stem = stemUk(raw);
   if (!stem || stem.length < 2) { showToast('Закороткий', 'err'); return; }
-  if (STAPLES.has(stem)) { showToast(`'${stem}' вже є`); return; }
-  STAPLES.add(stem);
+  if (!addStapleStem(stem)) { showToast(`'${stem}' вже є`); return; }
   persistStaples();
   inp.value = '';
   renderDictionariesView();
 };
-window.dictRemoveStaple = function(s) {
-  STAPLES.delete(s);
+window.dictUpdateStapleStem = function(i, val) {
+  if (!STAPLES_DATA[i]) return;
+  STAPLES_DATA[i].stem = String(val || '').trim().toLowerCase();
+  rebuildStaplesFlat();
+  persistStaples();
+};
+window.dictRemoveStapleEntry = function(i) {
+  STAPLES_DATA.splice(i, 1);
+  rebuildStaplesFlat();
+  persistStaples();
+  renderDictionariesView();
+};
+window.dictAddStapleAlias = function(i, raw) {
+  const v = (raw || '').trim().toLowerCase();
+  if (!v || !STAPLES_DATA[i]) return;
+  if (!Array.isArray(STAPLES_DATA[i].aliases)) STAPLES_DATA[i].aliases = [];
+  if (STAPLES_DATA[i].aliases.includes(v) || STAPLES_DATA[i].stem === v) return;
+  STAPLES_DATA[i].aliases.push(v);
+  rebuildStaplesFlat();
+  persistStaples();
+  renderDictionariesView();
+};
+window.dictRemoveStapleAlias = function(i, ai) {
+  if (!STAPLES_DATA[i] || !Array.isArray(STAPLES_DATA[i].aliases)) return;
+  STAPLES_DATA[i].aliases.splice(ai, 1);
+  rebuildStaplesFlat();
   persistStaples();
   renderDictionariesView();
 };
@@ -4931,7 +5002,7 @@ function renderStaplesLists() {
 }
 async function persistStaples() {
   if (!db) return;
-  try { await set(ref(db, 'racion/staples'), [...STAPLES]); }
+  try { await set(ref(db, 'racion/staples'), STAPLES_DATA); }
   catch (e) { console.warn('[staples]', e); }
 }
 window.addCustomStaple = async function() {
@@ -4940,16 +5011,14 @@ window.addCustomStaple = async function() {
   if (!raw) return;
   const stem = stemUk(raw);
   if (!stem || stem.length < 2) { showToast('Занадто короткий', 'err'); return; }
-  if (STAPLES.has(stem)) { showToast(`'${stem}' вже є`); inp.value = ''; return; }
-  STAPLES.add(stem);
+  if (!addStapleStem(stem)) { showToast(`'${stem}' вже є`); inp.value = ''; return; }
   await persistStaples();
   inp.value = '';
   renderStaplesLists();
   showToast(`'${stem}' додано`);
 };
 window.removeCustomStaple = async function(stem) {
-  if (!STAPLES.has(stem)) return;
-  STAPLES.delete(stem);
+  if (!removeStapleStem(stem)) return;
   await persistStaples();
   renderStaplesLists();
   showToast(`'${stem}' видалено`);
@@ -4957,7 +5026,7 @@ window.removeCustomStaple = async function(stem) {
 
 window.markMissingAsStaple = async function(stem) {
   if (!stem) return;
-  STAPLES.add(stem);
+  addStapleStem(stem);
   await persistStaples();
   showToast(`'${stem}' помічено як staple`);
   runRecipeCoverageAnalysis();
