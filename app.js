@@ -1507,10 +1507,18 @@ window.saveRecipeNow = async function(recipeKey) {
   // linked to a product AND have a positive grams value. Staples (сіль/перець
   // тощо) and optional ingredients can stay missing/zero.
   if (recipe.type === 'recipe' && Array.isArray(recipe.linkedIngredients)) {
+    const ingsEl = document.getElementById('pcardIngsSection');
+    const shakeIngs = () => {
+      // Shake the inner list — the section itself sometimes lives inside
+      // an overflow:hidden ancestor that clips translateX.
+      shakeElement(ingsEl?.querySelector('.pcard-ings-list') || ingsEl);
+      // Also scroll into view so the user sees the shake
+      ingsEl?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    };
     const missing = recipe.linkedIngredients.find(l => l.kind === 'missing');
     if (missing) {
       showToast(`Привʼяжи інгредієнт: "${missing.raw.slice(0, 40)}"`, 'err');
-      shakeElement(document.getElementById('pcardIngsSection'));
+      shakeIngs();
       return;
     }
     const noGrams = recipe.linkedIngredients.find(
@@ -1518,7 +1526,7 @@ window.saveRecipeNow = async function(recipeKey) {
     );
     if (noGrams) {
       showToast(`Заповни грамовку: "${(noGrams.productName || noGrams.raw).slice(0, 40)}"`, 'err');
-      shakeElement(document.getElementById('pcardIngsSection'));
+      shakeIngs();
       return;
     }
   }
