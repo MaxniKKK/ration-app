@@ -4765,20 +4765,24 @@ function groupRecipesByCategory() {
     recipes: [],
   }));
   const byType = Object.fromEntries(buckets.map(b => [b.type, b]));
+  const uncategorized = { name: 'Без категорії', type: '__none__', icon: '❓', recipes: [] };
 
   for (const [key, food] of Object.entries(FOODS)) {
     if (!food || food.type !== 'recipe') continue;
     if (_recipeWhitelistFilterOn && !food._whitelisted) continue;
     const tags = food.tags || [];
-    if (!tags.length) continue;
+    if (!tags.length) {
+      uncategorized.recipes.push({ key, food });
+      continue;
+    }
     for (const t of tags) {
       const bucket = byType[t];
       if (bucket) bucket.recipes.push({ key, food });
     }
   }
 
-  // Always return all buckets, even empty ones — caller decides display.
-  return buckets;
+  // Surface uncategorized at top so newly imported recipes are visible.
+  return uncategorized.recipes.length ? [uncategorized, ...buckets] : buckets;
 }
 
 // Build the small coverage badge HTML for a recipe item.
