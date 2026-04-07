@@ -86,9 +86,11 @@ const DEFAULT_PEOPLE = {
 };
 
 // ── КАТЕГОРІЇ СІЛЬПО для авто-мапінгу ───────────────────────────────────
-// Ключ — назва з INGREDIENT_POOL, значення — масив підрядків які мають
-// зустрітися в sectionSlug продукту Сільпо. Без матчу — продукт відкидається.
-const FOOD_CATEGORIES = {
+// Default seed map: ingredient name → array of substrings that must appear
+// in a Silpo product sectionSlug for the match to be accepted. Loaded into
+// FOOD_CATEGORIES at startup; persisted to racion/foodCategoryRules and
+// then editable from Firebase.
+const DEFAULT_FOOD_CATEGORIES_SEED = {
   'Банан':                ['banany','frukty'],
   'Яблука':               ['iabluka','frukty'],
   'Апельсин':             ['tsytrus','apelsyn','frukty'],
@@ -104,17 +106,15 @@ const FOOD_CATEGORIES = {
   'Тунець консервований': ['tunets','rybni-konserv','konserv-rybn'],
 };
 
+// Live map — populated from Firebase on init.
+let FOOD_CATEGORIES = { ...DEFAULT_FOOD_CATEGORIES_SEED };
+
 // ── ПУЛ ІНГРЕДІЄНТІВ для динамічної генерації плану ─────────────────────
-// Кожен інгредієнт: n=назва (узгоджена з FOOD_CATEGORIES для пошуку Сільпо),
-// k=приблизна калорійність на 100г (використовується тільки для розрахунку
-// порцій до моменту коли autoFillWeek підтягне точні дані з Сільпо).
-// Each ingredient has full per-100g nutrition + realistic portion bounds.
-// k=kcal, p=protein, f=fat, c=carbs (per 100g)
-// def=default serving in grams, min/max=portion bounds (нікого не змусиш зʼїсти 1.4 кг помідорів)
-// These bounds drive sane portion sizing — only "main" categories
-// (protein, carb) get scaled to hit the meal's kcal target; dairy/fruit/veggie
-// stay close to their default serving so the day looks like a real meal.
-const INGREDIENT_POOL = {
+// Default seed grouped by category. Loaded into INGREDIENT_POOL on init,
+// persisted to racion/ingredientPool, then editable from Firebase.
+// Each entry: n=name, k=kcal/100g, p=protein, f=fat, c=carbs,
+// def=default serving (g), min/max=portion bounds.
+const DEFAULT_INGREDIENT_POOL_SEED = {
   protein: [
     { n: 'Куряче філе',          k: 110, p: 23,  f: 1.2, c: 0,   def: 150, min: 80,  max: 250 },
     { n: 'Яйця курячі',          k: 155, p: 13,  f: 11,  c: 1.1, def: 110, min: 55,  max: 220 },
@@ -140,16 +140,19 @@ const INGREDIENT_POOL = {
   ],
 };
 
+// Live pool — populated from Firebase on init, deep-cloned from seed by default.
+let INGREDIENT_POOL = JSON.parse(JSON.stringify(DEFAULT_INGREDIENT_POOL_SEED));
+
 // Categories that scale freely with meal kcal target (high-density "main" food).
 // Other categories (dairy/fruit/veggie) stay near their default portion.
 const SCALABLE_CATEGORIES = new Set(['protein', 'carb']);
 
 // ── PIECE-UNIT INGREDIENTS ──────────────────────────────────────────────
-// Products that are practical to measure in whole pieces, not grams.
-// Each entry: stem (lowercase substring of name) → average per-piece weight + unit label.
-// The local generator snaps grams of these products to a whole number of
-// pieces so the user gets "2 шт яйця" instead of "115г яєць".
-const PIECE_UNITS = [
+// Default seed for products that are practical to measure in whole pieces.
+// Loaded into PIECE_UNITS at startup; persisted to racion/pieceUnits on
+// first run, then editable from Firebase. Each FOODS record can override
+// these per-product via its own pieceWeight/pieceUnit fields.
+const DEFAULT_PIECE_UNITS_SEED = [
   { stem: 'яйц',      g: 55,  unit: 'шт' },
   { stem: 'яєц',      g: 55,  unit: 'шт' },
   { stem: 'банан',    g: 120, unit: 'шт' },
@@ -169,6 +172,9 @@ const PIECE_UNITS = [
   { stem: 'перц',     g: 120, unit: 'шт' },
   { stem: 'кабачк',   g: 250, unit: 'шт' },
 ];
+
+// Live array — populated from Firebase on init.
+let PIECE_UNITS = [...DEFAULT_PIECE_UNITS_SEED];
 
 // Returns { g, unit } matched by name stem, or null if no rule matches.
 // This is the SEED — used once per food when first added to the directory.
@@ -538,10 +544,45 @@ function initFirebase(cfg) {
       if (val) DIARY = val;
     });
     // Load foods cache
-    // User-managed staples (stems) — used by isStapleLike during coverage analysis
-    onValue(ref(db, 'racion/customStaples'), (snap) => {
+    // Ingredient pool — category-grouped fallback ingredients for the POOL generator
+    onValue(ref(db, 'racion/ingredientPool'), (snap) => {
+      const obj = snap.val();
+      if (obj && typeof obj === 'object' && Object.keys(obj).length) {
+        INGREDIENT_POOL = obj;
+      } else {
+        INGREDIENT_POOL = JSON.parse(JSON.stringify(DEFAULT_INGREDIENT_POOL_SEED));
+        set(ref(db, 'racion/ingredientPool'), INGREDIENT_POOL).catch(() => {});
+      }
+    });
+    // Silpo category rules — name → sectionSlug substrings, editable
+    onValue(ref(db, 'racion/foodCategoryRules'), (snap) => {
+      const obj = snap.val();
+      if (obj && typeof obj === 'object' && Object.keys(obj).length) {
+        FOOD_CATEGORIES = obj;
+      } else {
+        FOOD_CATEGORIES = { ...DEFAULT_FOOD_CATEGORIES_SEED };
+        set(ref(db, 'racion/foodCategoryRules'), FOOD_CATEGORIES).catch(() => {});
+      }
+    });
+    // Piece-unit rules — seedable, editable per-product on FOODS records
+    onValue(ref(db, 'racion/pieceUnits'), (snap) => {
       const arr = snap.val();
-      CUSTOM_STAPLES = new Set(Array.isArray(arr) ? arr : []);
+      if (Array.isArray(arr) && arr.length) {
+        PIECE_UNITS = arr;
+      } else {
+        PIECE_UNITS = [...DEFAULT_PIECE_UNITS_SEED];
+        set(ref(db, 'racion/pieceUnits'), PIECE_UNITS).catch(() => {});
+      }
+    });
+    // Staples (stems) — single editable Firebase list, seeded on first load
+    onValue(ref(db, 'racion/staples'), (snap) => {
+      const arr = snap.val();
+      if (Array.isArray(arr) && arr.length) {
+        STAPLES = new Set(arr);
+      } else {
+        STAPLES = new Set(DEFAULT_STAPLES_SEED);
+        set(ref(db, 'racion/staples'), [...STAPLES]).catch(() => {});
+      }
     });
     const foodsRef = ref(db, "racion/foods");
     onValue(foodsRef, (snap) => {
@@ -3561,31 +3602,27 @@ ${ingList}
 // essentials everyone always has.
 // Match is EXACT against the stem set (no prefix tricks → 'курк' (chicken)
 // can't accidentally hit 'куркум' (turmeric)).
-const TRUE_STAPLE_STEMS = new Set([
-  // SALT — сіль/солі/сіллю/посоли
+// Default seed list — written to racion/staples on first load if empty.
+// After that, the Firebase node is the source of truth and editable from UI.
+// Built-in/custom split eliminated — single editable list per the no-hardcode rule.
+const DEFAULT_STAPLES_SEED = [
+  // Salt
   'сол', 'сіл', 'посол', 'присол',
-  // WATER — вода/води/льоду
+  // Water
   'вод', 'льод',
-  // SUGAR — цукор/цукру/цукрова пудра (with мод 'пудр' stripped)
+  // Sugar
   'цук', 'цукор', 'цукр',
-  // FLOUR — будь-яке борошно (вважається базовим)
+  // Flour
   'борошн', 'мук',
-  // BAKING ESSENTIALS
+  // Baking essentials
   'мед', 'крохмал', 'желатин', 'дріжд', 'розпуш', 'сод', 'розпушув',
-]);
-
-// OPTIONAL ingredients — spices, oils, vinegar, herbs, etc. The user said
-// these SHOULD be linked to products if available, but should NOT block a
-// recipe from passing the whitelist threshold (they're "nice to have").
-// EXACT match against this stem set.
-const OPTIONAL_INGREDIENT_STEMS = new Set([
-  // PEPPER — перець/перцю/перчений
+  // Pepper
   'перц', 'перец', 'перч', 'перчик',
-  // OIL — олія/олій
+  // Oil
   'олі', 'олій', 'олиї',
-  // VINEGAR — оцет/оцту
+  // Vinegar
   'оце', 'оцт', 'оцет',
-  // VANILLA — vanilla / vanilla sugar / vanillin
+  // Vanilla
   'ванілі', 'ваніль', 'ваніл', 'ванільн', 'ванілін',
   // Dried spices
   'лавр', 'кмин', 'паприк', 'кориц', 'мускат', 'гвоздик', 'кардамон',
@@ -3594,16 +3631,17 @@ const OPTIONAL_INGREDIENT_STEMS = new Set([
   'спец', 'пряно', 'аніс', 'бадя', 'зір',
   // Fresh herbs
   'петрушк', 'кріп', 'кроп', 'зелен',
-  // Baking basics
-  'дріжж',
   // Garlic
   'часник', 'часн', 'часнк', 'зубчик', 'зубч', 'зубк',
-]);
+];
 
-// User-managed staples — populated from racion/customStaples on Firebase
-// load. The UI in Part 3 (missing-ingredients panel) lets the user add new
-// stems here. Treated identically to TRUE_STAPLE/OPTIONAL during analysis.
-let CUSTOM_STAPLES = new Set();
+// Live staples set — loaded from racion/staples on init, mutated via UI.
+let STAPLES = new Set(DEFAULT_STAPLES_SEED);
+
+// OPTIONAL ingredients — spices, oils, vinegar, herbs, etc. The user said
+// these SHOULD be linked to products if available, but should NOT block a
+// recipe from passing the whitelist threshold (they're "nice to have").
+// EXACT match against this stem set.
 
 // Strip adjective-modifier stems from a stem set so 'лавровий лист' becomes
 // just [lst] and 'червоний перець' becomes just [перец]. Modifiers use a
@@ -3633,25 +3671,9 @@ function _stemsAllIn(parsedName, stemSet) {
   return true;
 }
 
-function isTrueStaple(parsedName)        { return _stemsAllIn(parsedName, TRUE_STAPLE_STEMS); }
-function isOptionalIngredient(parsedName) {
-  // Optional includes everything in OPTIONAL_INGREDIENT_STEMS — but NOT
-  // true staples (they're handled separately). Use exact-match too.
-  if (!parsedName) return false;
-  const all = stemsOf(parsedName);
-  if (!all.size) return false;
-  const significant = _stripModifiers(all);
-  if (!significant.length) return false;
-  for (const s of significant) {
-    if (!OPTIONAL_INGREDIENT_STEMS.has(s)) return false;
-  }
-  return true;
-}
-
-// UNIFIED check: every significant stem is in TRUE ∪ OPTIONAL ∪ CUSTOM.
-// This is what the coverage analyzer uses — it correctly handles compound
-// lines like "сіль та перець до смаку" (where 'сіл' is TRUE and 'перц' is
-// OPTIONAL — both staple-like, so the whole line is skipped).
+// Single staple check — every significant stem must be in the unified
+// STAPLES set (loaded from racion/staples). Handles compound lines like
+// "сіль та перець до смаку" because both 'сіл' and 'перц' are in STAPLES.
 function isStapleLike(parsedName) {
   if (!parsedName) return false;
   const all = stemsOf(parsedName);
@@ -3659,18 +3681,13 @@ function isStapleLike(parsedName) {
   const significant = _stripModifiers(all);
   if (!significant.length) return true;
   for (const s of significant) {
-    if (TRUE_STAPLE_STEMS.has(s)) continue;
-    if (OPTIONAL_INGREDIENT_STEMS.has(s)) continue;
-    if (CUSTOM_STAPLES.has(s)) continue;
-    return false;
+    if (!STAPLES.has(s)) return false;
   }
   return true;
 }
 
-// Backwards-compat shim used by older callers (top-missing aggregation).
-function isPantryStaple(parsedName) {
-  return isStapleLike(parsedName);
-}
+// Backwards-compat shim used by older callers
+function isPantryStaple(parsedName) { return isStapleLike(parsedName); }
 
 // Pick the most informative stem of a parsed ingredient — the longest
 // non-modifier stem. Used to group missing ingredients in the UI panel
@@ -4017,14 +4034,113 @@ window.renderMissingIngsPanel = function() {
     <div class="mip-row">
       <span class="mip-label" title="stem: ${e.stem}">${escapeHtml(e.label)}</span>
       <span class="mip-count">${e.count}</span>
-      <button class="mip-btn mip-staple" onclick="markMissingAsStaple('${e.stem}')" title="Додати ${e.stem} у список staples — рецепти перестануть вважати це відсутнім">✓ Staple</button>
-      <button class="mip-btn mip-del" onclick="deleteRecipesContainingStem('${e.stem}')" title="Видалити всі ${e.count} рецептів що містять цей інгредієнт">🗑 ${e.count}</button>
+      <button class="mip-btn mip-add" onclick="openAddProductModal('${escapeHtml(e.label).replace(/'/g,'&#39;')}','${e.stem}')" title="Додати як новий продукт у довідник">+ Продукт</button>
+      <button class="mip-btn mip-staple" onclick="markMissingAsStaple('${e.stem}')" title="Додати ${e.stem} у список staples">✓ Staple</button>
+      <button class="mip-btn mip-del" onclick="deleteRecipesContainingStem('${e.stem}')" title="Видалити всі ${e.count} рецептів">🗑 ${e.count}</button>
     </div>
   `).join('');
 };
 
 window.filterMissingIngs = function() {
   renderMissingIngsPanel();
+};
+
+// ── ADD PRODUCT MODAL (in-place, used by missing-ings panel) ────────────
+let _addProductPendingStem = null;
+window.openAddProductModal = function(prefillName, stem) {
+  _addProductPendingStem = stem || null;
+  document.getElementById('apName').value = prefillName || '';
+  document.getElementById('apKcal').value = '';
+  document.getElementById('apProt').value = '';
+  document.getElementById('apFat').value  = '';
+  document.getElementById('apCarb').value = '';
+  document.getElementById('apSilpoInfo').textContent = '';
+  document.getElementById('apSilpoInfo').style.display = 'none';
+  _apSilpoData = null;
+  document.getElementById('addProductModal').classList.add('on');
+  setTimeout(() => document.getElementById('apName').focus(), 120);
+};
+window.closeAddProductModal = function() {
+  document.getElementById('addProductModal').classList.remove('on');
+  _addProductPendingStem = null;
+  _apSilpoData = null;
+};
+
+let _apSilpoData = null;
+window.apFetchAI = async function() {
+  const name = document.getElementById('apName').value.trim();
+  if (!name) { showToast('Спочатку введи назву', 'err'); return; }
+  showAIBusy('🤖 AI шукає КБЖУ', name);
+  try {
+    const nutr = await fetchNutritionFromAI(name);
+    if (nutr) {
+      document.getElementById('apKcal').value = nutr.kcal || '';
+      document.getElementById('apProt').value = nutr.protein || '';
+      document.getElementById('apFat').value  = nutr.fat || '';
+      document.getElementById('apCarb').value = nutr.carbs || '';
+      showToast('Заповнено через AI');
+    } else {
+      showToast('AI нічого не повернув', 'err');
+    }
+  } catch (e) {
+    showToast('Помилка AI: ' + e.message, 'err');
+  }
+  hideAIBusy();
+};
+window.apFetchSilpo = async function() {
+  const name = document.getElementById('apName').value.trim();
+  if (!name) { showToast('Спочатку введи назву', 'err'); return; }
+  showAIBusy('🔍 Пошук в Сільпо', name);
+  try {
+    const r = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products?limit=15&search=${encodeURIComponent(name)}`, { headers: { accept: 'application/json' } });
+    const data = await r.json();
+    const items = (data.items || []);
+    if (!items.length) { hideAIBusy(); showToast('Нічого не знайдено', 'err'); return; }
+    const best = items[0];
+    const detailR = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products/${best.slug}`, { headers: { accept: 'application/json' } });
+    const detail = await detailR.json();
+    const nutr = parseSilpoNutr(detail.attributeGroups);
+    if (nutr) {
+      document.getElementById('apKcal').value = nutr.kcal ?? '';
+      document.getElementById('apProt').value = nutr.protein ?? '';
+      document.getElementById('apFat').value  = nutr.fat ?? '';
+      document.getElementById('apCarb').value = nutr.carbs ?? '';
+    }
+    _apSilpoData = {
+      silpoTitle: best.title,
+      silpoSlug:  best.slug,
+      silpoIcon:  best.icon || null,
+      silpoPrice: best.displayPrice ?? null,
+      silpoPriceRatio: best.displayRatio ?? null,
+    };
+    const info = document.getElementById('apSilpoInfo');
+    info.textContent = `🔗 ${best.title}`;
+    info.style.display = '';
+  } catch (e) {
+    showToast('Помилка Сільпо: ' + e.message, 'err');
+  }
+  hideAIBusy();
+};
+window.saveAddProduct = async function() {
+  const name = document.getElementById('apName').value.trim();
+  if (!name) { showToast('Назва обовʼязкова', 'err'); return; }
+  const food = {
+    name,
+    kcal:    parseFloat(document.getElementById('apKcal').value) || 0,
+    protein: parseFloat(document.getElementById('apProt').value) || 0,
+    fat:     parseFloat(document.getElementById('apFat').value)  || 0,
+    carbs:   parseFloat(document.getElementById('apCarb').value) || 0,
+    source:  _apSilpoData ? 'silpo' : 'manual',
+  };
+  if (_apSilpoData) Object.assign(food, _apSilpoData);
+  seedFoodPieceUnit(food);
+  const key = foodKey(name);
+  FOODS[key] = food;
+  if (db) await set(ref(db, 'racion/foods/' + key), food);
+  showToast('Продукт додано ✓');
+  closeAddProductModal();
+  // Re-run coverage so the missing row disappears (or at least decreases)
+  runRecipeCoverageAnalysis();
 };
 
 // ── STAPLES EDITOR MODAL ────────────────────────────────────────────────
@@ -4037,59 +4153,50 @@ window.closeStaplesModal = function() {
   document.getElementById('staplesModal').classList.remove('on');
 };
 function renderStaplesLists() {
-  const customEl  = document.getElementById('customStaplesList');
-  const builtinEl = document.getElementById('builtinStaplesList');
-  const cnt       = document.getElementById('customStaplesCount');
-  if (!customEl || !builtinEl) return;
-  const custom = [...CUSTOM_STAPLES].sort();
-  cnt.textContent = custom.length;
-  customEl.innerHTML = custom.length
-    ? custom.map(s => `
+  const listEl = document.getElementById('customStaplesList');
+  const cnt    = document.getElementById('customStaplesCount');
+  if (!listEl) return;
+  const all = [...STAPLES].sort();
+  if (cnt) cnt.textContent = all.length;
+  listEl.innerHTML = all.length
+    ? all.map(s => `
         <div class="staple-tag">
           <span>${escapeHtml(s)}</span>
           <button onclick="removeCustomStaple('${s}')" title="Видалити">×</button>
         </div>`).join('')
-    : `<div style="font-size:11px;color:var(--muted);padding:8px 0">Поки порожньо. Додай через поле вище або кнопку ✓ Staple у списку відсутніх інгредієнтів.</div>`;
-  const builtin = [...new Set([...TRUE_STAPLE_STEMS, ...OPTIONAL_INGREDIENT_STEMS])].sort();
-  builtinEl.innerHTML = builtin.map(s => `<div class="staple-tag readonly">${escapeHtml(s)}</div>`).join('');
+    : `<div style="font-size:11px;color:var(--muted);padding:8px 0">Поки порожньо.</div>`;
+}
+async function persistStaples() {
+  if (!db) return;
+  try { await set(ref(db, 'racion/staples'), [...STAPLES]); }
+  catch (e) { console.warn('[staples]', e); }
 }
 window.addCustomStaple = async function() {
   const inp = document.getElementById('newStapleInp');
   const raw = (inp.value || '').trim().toLowerCase();
   if (!raw) return;
-  // Use the same stemmer as the analyzer so user input collapses correctly
   const stem = stemUk(raw);
   if (!stem || stem.length < 2) { showToast('Занадто короткий', 'err'); return; }
-  if (CUSTOM_STAPLES.has(stem)) { showToast(`'${stem}' вже є`); inp.value = ''; return; }
-  CUSTOM_STAPLES.add(stem);
-  if (db) {
-    try { await set(ref(db, 'racion/customStaples'), [...CUSTOM_STAPLES]); }
-    catch (e) { console.warn('[customStaples-add]', e); }
-  }
+  if (STAPLES.has(stem)) { showToast(`'${stem}' вже є`); inp.value = ''; return; }
+  STAPLES.add(stem);
+  await persistStaples();
   inp.value = '';
   renderStaplesLists();
   showToast(`'${stem}' додано`);
 };
 window.removeCustomStaple = async function(stem) {
-  if (!CUSTOM_STAPLES.has(stem)) return;
-  CUSTOM_STAPLES.delete(stem);
-  if (db) {
-    try { await set(ref(db, 'racion/customStaples'), [...CUSTOM_STAPLES]); }
-    catch (e) { console.warn('[customStaples-rm]', e); }
-  }
+  if (!STAPLES.has(stem)) return;
+  STAPLES.delete(stem);
+  await persistStaples();
   renderStaplesLists();
   showToast(`'${stem}' видалено`);
 };
 
 window.markMissingAsStaple = async function(stem) {
   if (!stem) return;
-  CUSTOM_STAPLES.add(stem);
-  if (db) {
-    try { await set(ref(db, 'racion/customStaples'), [...CUSTOM_STAPLES]); }
-    catch (e) { console.warn('[customStaples]', e); }
-  }
+  STAPLES.add(stem);
+  await persistStaples();
   showToast(`'${stem}' помічено як staple`);
-  // Re-run analysis so the stem disappears from missing across all recipes
   runRecipeCoverageAnalysis();
 };
 
