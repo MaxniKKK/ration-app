@@ -1500,13 +1500,7 @@ window.saveRecipeNow = async function(recipeKey) {
   // Validation: every recipe must have at least one meal-type tag.
   if (recipe.type === 'recipe' && (!recipe.tags || !recipe.tags.length)) {
     showToast('Обери хоча б один прийом їжі для рецепта', 'err');
-    const tagsEl = document.getElementById('pcardTagsSection');
-    if (tagsEl) {
-      tagsEl.classList.remove('shake');
-      void tagsEl.offsetWidth; // restart animation
-      tagsEl.classList.add('shake');
-      setTimeout(() => tagsEl.classList.remove('shake'), 600);
-    }
+    shakeElement(document.getElementById('pcardTagsSection'));
     return;
   }
   const btn = document.getElementById('pcardSaveBtn');
@@ -2778,6 +2772,25 @@ window.renderPeople = function() {
 
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+// Shake an element via the Web Animations API — bypasses CSS-cache issues
+// and DOM-rerender races. Uses translateX keyframes.
+function shakeElement(el) {
+  if (!el || !el.animate) return;
+  el.animate(
+    [
+      { transform: 'translateX(0)' },
+      { transform: 'translateX(-8px)' },
+      { transform: 'translateX(8px)' },
+      { transform: 'translateX(-6px)' },
+      { transform: 'translateX(6px)' },
+      { transform: 'translateX(-3px)' },
+      { transform: 'translateX(3px)' },
+      { transform: 'translateX(0)' },
+    ],
+    { duration: 550, easing: 'cubic-bezier(.36,.07,.19,.97)' }
+  );
 }
 
 window.addPerson = function() {
@@ -5113,13 +5126,7 @@ window.saveManualRecipe = async function() {
   if (!ingsRaw) { showToast('Додай хоча б один інгредієнт', 'err'); return; }
   if (!_mrSelectedTags.size) {
     showToast('Обери хоча б один прийом їжі', 'err');
-    const el = document.getElementById('mrTags');
-    if (el) {
-      el.classList.remove('shake');
-      void el.offsetWidth;
-      el.classList.add('shake');
-      setTimeout(() => el.classList.remove('shake'), 600);
-    }
+    shakeElement(document.getElementById('mrTags'));
     return;
   }
   const ingredients = ingsRaw.split('\n').map(s => s.trim()).filter(Boolean);
