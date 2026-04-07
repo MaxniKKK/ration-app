@@ -17,6 +17,33 @@ import {
 const SILPO_BRANCH = "1edb7346-0ee4-6ec8-90f1-11a6c487168c";
 const SILPO_API = "https://sf-ecom-api.silpo.ua/v1/uk/branches";
 
+// ── SILPO API HELPERS ───────────────────────────────────────────────────
+// Single source of truth for every Silpo HTTP call. Callers used to inline
+// the URL + headers + json parse + sort, three different ways. Now they
+// just call silpoSearch / silpoProductDetail / sortSilpoByQueryMatch.
+async function silpoSearch(query, limit = 20) {
+  const url = `${SILPO_API}/${SILPO_BRANCH}/products?limit=${limit}&search=${encodeURIComponent(query)}`;
+  const r = await fetch(url, { headers: { accept: 'application/json' } });
+  if (!r.ok) throw new Error(`Silpo search HTTP ${r.status}`);
+  const data = await r.json();
+  return data.items || [];
+}
+async function silpoProductDetail(slug) {
+  const url = `${SILPO_API}/${SILPO_BRANCH}/products/${slug}`;
+  const r = await fetch(url, { headers: { accept: 'application/json' } });
+  if (!r.ok) throw new Error(`Silpo detail HTTP ${r.status}`);
+  return await r.json();
+}
+// Sort search results so titles where the query appears earlier come first.
+function sortSilpoByQueryMatch(items, query) {
+  const ql = String(query || '').toLowerCase();
+  return items.slice().sort((a, b) => {
+    const ai = (a.title || '').toLowerCase().indexOf(ql);
+    const bi = (b.title || '').toLowerCase().indexOf(ql);
+    return (ai === -1 ? 9999 : ai) - (bi === -1 ? 9999 : bi);
+  });
+}
+
 const DAYS = [
   "Неділя",
   "Понеділок",
@@ -1184,13 +1211,10 @@ window.doMSearch = async function() {
   btn.disabled = true;
   res.innerHTML = `<div style="text-align:center;padding:20px;color:var(--muted);font-size:12px"><div class="spin" style="margin:0 auto 8px"></div><br>Шукаємо в Сільпо...</div>`;
   try {
-    const r = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products?limit=20&search=${encodeURIComponent(q)}`, {
-      headers: { accept: "application/json" }
-    });
-    const data = await r.json();
+    const rawItems = await silpoSearch(q, 20);
     // Smart sort: exact/word matches first, shorter titles preferred
     // No category filter — manual mode lets user pick anything
-    const items = (data.items || []).slice().sort((a, b) =>
+    const items = rawItems.slice().sort((a, b) =>
       silpoMatchScore(q, a, null) - silpoMatchScore(q, b, null)
     );
     if (!items.length) {
@@ -1252,10 +1276,7 @@ window.selectFoodForEdit = async function(idx) {
 
   let nutr = null;
   try {
-    const r = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products/${p.slug}`, {
-      headers: { accept: "application/json" }
-    });
-    const detail = await r.json();
+    const detail = await silpoProductDetail(p.slug);
     nutr = parseSilpoNutr(detail.attributeGroups);
   } catch(e) {}
 
@@ -1520,14 +1541,25 @@ window.openPCard = function(key) {
     _pcardIngsDraft = null;
     _pcardIngsEditKey = null;
   }
-  // Recipe ingredients section — only for type='recipe'. Shows each raw
-  // ingredient string with its resolved status (linked / staple / missing).
-  // Linked rows are clickable → opens that product's card. Computes a
-  // fresh link list on demand if linkedIngredients was never persisted.
   const ingsEl = document.getElementById('pcardIngsSection');
+  const ingsHtml = pcardIngredientsHtml(food, key);
+  if (ingsHtml) { ingsEl.innerHTML = ingsHtml; ingsEl.style.display = ''; }
+  else          { ingsEl.style.display = 'none'; }
+
+  document.getElementById('pcardTagsSection').innerHTML = pcardTagsHtml(food, key);
+  document.getElementById('pcardActions').innerHTML    = pcardActionsHtml(food, key);
+
+  document.getElementById('pcardModal').classList.add('on');
+};
+
+// ── PCARD HTML BUILDERS ─────────────────────────────────────────────────
+// Each helper takes the food + its key and returns an HTML string.
+// openPCard is the orchestrator — these are pure(ish) view functions.
+
+function pcardIngredientsHtml(food, key) {
+  // Edit mode (recipe ingredients raw textarea-style)
   if (food.type === 'recipe' && _pcardEditingIngs && Array.isArray(_pcardIngsDraft)) {
-    // ── EDIT MODE ──
-    ingsEl.innerHTML = `
+    return `
       <div class="pcard-ings-label">
         <span>Інгредієнти (редагування)</span>
         <button class="pcard-ings-edit-btn" onclick="event.stopPropagation();toggleRecipeIngsEdit('${key}')">Скасувати</button>
@@ -1541,77 +1573,76 @@ window.openPCard = function(key) {
         `).join('')}
       </ul>
       <button class="pcard-add-ing-btn" onclick="event.stopPropagation();addRecipeIng()">+ Додати інгредієнт</button>
-      <button class="pcard-save-ings-btn" onclick="event.stopPropagation();saveRecipeIngs('${key}')">☁️ Зберегти</button>
-    `;
-    ingsEl.style.display = '';
-  } else if (food.type === 'recipe' && Array.isArray(food.ingredients) && food.ingredients.length) {
-    let linked = food.linkedIngredients;
-    if (!Array.isArray(linked)) {
-      // Lazy compute on first card open after a fresh load.
-      // CRITICAL: write back to food.linkedIngredients (and persist) so that
-      // click handlers like openManualLinkIngredient can find the array.
-      const products = Object.entries(FOODS)
-        .filter(([k, f]) => f && f.type !== 'recipe' && f.name)
-        .map(([k, f]) => ({ key: k, name: f.name }));
-      linked = analyzeRecipeCoverage(food, products).linked;
-      food.linkedIngredients = linked;
-      if (db) set(ref(db, 'racion/foods/' + key), food).catch(() => {});
-    }
-    const matchedCount  = linked.filter(l => l.kind === 'linked' && !l.optional).length;
-    const optionalLinked = linked.filter(l => l.kind === 'linked' && l.optional).length;
-    const missingCount  = linked.filter(l => l.kind === 'missing').length;
-    const optionalCount = linked.filter(l => l.kind === 'optional').length;
-    const stapleCount   = linked.filter(l => l.kind === 'staple').length;
-    ingsEl.innerHTML = `
-      <div class="pcard-ings-label">
-        <span>Інгредієнти${food.servings ? ` · на ${food.servings} порц.` : ''}</span>
-        <button class="pcard-ings-edit-btn" onclick="event.stopPropagation();toggleRecipeIngsEdit('${key}')">✏️ Редагувати</button>
-      </div>
-      <ul class="pcard-ings-list">
-        ${linked.map((l, idx) => {
-          if (l.kind === 'linked') {
-            const g = getIngredientGrams(l);
-            return `<li>
-              <span class="pcard-ing-icon linked" title="${l.optional ? 'Опціональний інгредієнт, привʼязаний' : 'Привʼязано до продукту'}">●</span>
-              <span class="pcard-ing-raw">${escapeHtml(l.raw)}</span>
-              <a class="pcard-ing-link" onclick="event.stopPropagation();openPCard('${l.productKey}')">→ ${escapeHtml(l.productName || '')}</a>
-              <input class="pcard-ing-grams" type="number" min="0" step="1" value="${g || ''}" onclick="event.stopPropagation()" oninput="updateRecipeIngredientGrams('${key}',${idx},this.value)" title="Грамовка для цього інгредієнта">
-              <span class="pcard-ing-grams-unit">г</span>
-              <button class="pcard-ing-link-btn" onclick="event.stopPropagation();openManualLinkIngredient('${key}',${idx})" title="Перепривʼязати">✏️</button>
-              <button class="pcard-ing-link-btn" onclick="event.stopPropagation();unlinkRecipeIngredient('${key}',${idx})" title="Відвʼязати">×</button>
-            </li>`;
-          }
-          // Staple / optional / missing all share the same action affordances:
-          // user can always link to a product or add a new one. Only the icon
-          // colour differs to hint at automatic classification.
-          const iconCls = l.kind === 'staple' ? 'staple' : (l.kind === 'optional' ? 'optional' : 'missing');
-          const iconChar = l.kind === 'staple' ? '○' : (l.kind === 'optional' ? '◐' : '✕');
-          const iconTitle = l.kind === 'staple'
-            ? 'Базовий продукт — авто-пропущено, але можна привʼязати'
-            : (l.kind === 'optional' ? 'Опціональний — не блокує whitelist' : 'Немає в довіднику');
-          const parsedLabel = (parseIngredientName(l.raw) || l.raw).replace(/'/g,'&#39;');
-          return `<li>
-            <span class="pcard-ing-icon ${iconCls}" title="${iconTitle}">${iconChar}</span>
-            <span class="pcard-ing-raw">${escapeHtml(l.raw)}</span>
-            <button class="pcard-ing-link-btn" onclick="event.stopPropagation();openManualLinkIngredient('${key}',${idx})" title="Привʼязати до існуючого продукту">🔗</button>
-            <button class="pcard-ing-link-btn" onclick="event.stopPropagation();openAddProductModal('${parsedLabel}','')" title="Додати як новий продукт">+</button>
-          </li>`;
-        }).join('')}
-      </ul>
-      <div class="pcard-ing-meta">
-        ${matchedCount} в довіднику · ${optionalLinked + optionalCount} опціональних · ${missingCount} відсутні · ${stapleCount} базові${food.sourceUrl ? ` · <a href="${food.sourceUrl}" target="_blank" onclick="event.stopPropagation()" style="color:var(--blue);text-decoration:none">↗ ${(() => { try { return new URL(food.sourceUrl).hostname.replace(/^www\./,''); } catch { return 'джерело'; } })()}</a>` : ''}
-        ${food.computedFromIngs ? `<br><span style="color:var(--accent)">✓ КБЖУ розраховано з лінкованих продуктів${food.totalG ? ` · загальна вага ${food.totalG}г` : ''}</span>` : ''}
-      </div>
-    `;
-    ingsEl.style.display = '';
-  } else {
-    ingsEl.style.display = 'none';
+      <button class="pcard-save-ings-btn" onclick="event.stopPropagation();saveRecipeIngs('${key}')">☁️ Зберегти</button>`;
   }
 
-  // Meal-type tags: which slot types this product can appear in
-  const tagsEl = document.getElementById('pcardTagsSection');
+  // View mode (recipe with parsed linked ingredients)
+  if (food.type !== 'recipe' || !Array.isArray(food.ingredients) || !food.ingredients.length) return '';
+
+  let linked = food.linkedIngredients;
+  if (!Array.isArray(linked)) {
+    // Lazy-compute on first open + persist back so click handlers find it.
+    const products = Object.entries(FOODS)
+      .filter(([k, f]) => f && f.type !== 'recipe' && f.name)
+      .map(([k, f]) => ({ key: k, name: f.name }));
+    linked = analyzeRecipeCoverage(food, products).linked;
+    food.linkedIngredients = linked;
+    if (db) set(ref(db, 'racion/foods/' + key), food).catch(() => {});
+  }
+  const matchedCount   = linked.filter(l => l.kind === 'linked' && !l.optional).length;
+  const optionalLinked = linked.filter(l => l.kind === 'linked' && l.optional).length;
+  const missingCount   = linked.filter(l => l.kind === 'missing').length;
+  const optionalCount  = linked.filter(l => l.kind === 'optional').length;
+  const stapleCount    = linked.filter(l => l.kind === 'staple').length;
+  const sourceLinkHtml = food.sourceUrl
+    ? ` · <a href="${food.sourceUrl}" target="_blank" onclick="event.stopPropagation()" style="color:var(--blue);text-decoration:none">↗ ${(() => { try { return new URL(food.sourceUrl).hostname.replace(/^www\./,''); } catch { return 'джерело'; } })()}</a>`
+    : '';
+
+  return `
+    <div class="pcard-ings-label">
+      <span>Інгредієнти${food.servings ? ` · на ${food.servings} порц.` : ''}</span>
+      <button class="pcard-ings-edit-btn" onclick="event.stopPropagation();toggleRecipeIngsEdit('${key}')">✏️ Редагувати</button>
+    </div>
+    <ul class="pcard-ings-list">
+      ${linked.map((l, idx) => pcardIngredientRowHtml(l, idx, key)).join('')}
+    </ul>
+    <div class="pcard-ing-meta">
+      ${matchedCount} в довіднику · ${optionalLinked + optionalCount} опціональних · ${missingCount} відсутні · ${stapleCount} базові${sourceLinkHtml}
+      ${food.computedFromIngs ? `<br><span style="color:var(--accent)">✓ КБЖУ розраховано з лінкованих продуктів${food.totalG ? ` · загальна вага ${food.totalG}г` : ''}</span>` : ''}
+    </div>`;
+}
+
+function pcardIngredientRowHtml(l, idx, key) {
+  if (l.kind === 'linked') {
+    const g = getIngredientGrams(l);
+    return `<li>
+      <span class="pcard-ing-icon linked" title="${l.optional ? 'Опціональний інгредієнт, привʼязаний' : 'Привʼязано до продукту'}">●</span>
+      <span class="pcard-ing-raw">${escapeHtml(l.raw)}</span>
+      <a class="pcard-ing-link" onclick="event.stopPropagation();openPCard('${l.productKey}')">→ ${escapeHtml(l.productName || '')}</a>
+      <input class="pcard-ing-grams" type="number" min="0" step="1" value="${g || ''}" onclick="event.stopPropagation()" oninput="updateRecipeIngredientGrams('${key}',${idx},this.value)" title="Грамовка для цього інгредієнта">
+      <span class="pcard-ing-grams-unit">г</span>
+      <button class="pcard-ing-link-btn" onclick="event.stopPropagation();openManualLinkIngredient('${key}',${idx})" title="Перепривʼязати">✏️</button>
+      <button class="pcard-ing-link-btn" onclick="event.stopPropagation();unlinkRecipeIngredient('${key}',${idx})" title="Відвʼязати">×</button>
+    </li>`;
+  }
+  // staple / optional / missing — same actions, different icon
+  const iconCls   = l.kind === 'staple' ? 'staple' : (l.kind === 'optional' ? 'optional' : 'missing');
+  const iconChar  = l.kind === 'staple' ? '○' : (l.kind === 'optional' ? '◐' : '✕');
+  const iconTitle = l.kind === 'staple'   ? 'Базовий продукт — авто-пропущено, але можна привʼязати'
+                  : l.kind === 'optional' ? 'Опціональний — не блокує whitelist'
+                                           : 'Немає в довіднику';
+  const parsedLabel = (parseIngredientName(l.raw) || l.raw).replace(/'/g,'&#39;');
+  return `<li>
+    <span class="pcard-ing-icon ${iconCls}" title="${iconTitle}">${iconChar}</span>
+    <span class="pcard-ing-raw">${escapeHtml(l.raw)}</span>
+    <button class="pcard-ing-link-btn" onclick="event.stopPropagation();openManualLinkIngredient('${key}',${idx})" title="Привʼязати до існуючого продукту">🔗</button>
+    <button class="pcard-ing-link-btn" onclick="event.stopPropagation();openAddProductModal('${parsedLabel}','')" title="Додати як новий продукт">+</button>
+  </li>`;
+}
+
+function pcardTagsHtml(food, key) {
   const curTags = food.tags || [];
-  tagsEl.innerHTML = `
+  return `
     <div class="pcard-tags-label">Категорії прийомів</div>
     <div class="pcard-tags-row">
       ${MEAL_TAGS.map(t => `
@@ -1620,26 +1651,23 @@ window.openPCard = function(key) {
     </div>
     <div class="pcard-tags-hint">${curTags.length
       ? 'Продукт буде використовуватись лише в обраних типах прийомів'
-      : 'Без обмежень — продукт може зʼявлятись у будь-якому прийомі'}</div>
-  `;
+      : 'Без обмежень — продукт може зʼявлятись у будь-якому прийомі'}</div>`;
+}
 
-  const actEl = document.getElementById('pcardActions');
+function pcardActionsHtml(food, key) {
   const isRecipe = food.type === 'recipe';
-  // Recipes don't get the Silpo open/link buttons — those are product-only.
   const openBtn = (!isRecipe && food.silpoSlug && food.source === 'silpo')
     ? `<a class="pcard-open-a" href="https://silpo.ua/product/${food.silpoSlug}" target="_blank" onclick="event.stopPropagation()">Відкрити в Сільпо ↗</a>`
     : `<div style="flex:1"></div>`;
   const silpoLinkBtn = isRecipe
     ? ''
     : `<button class="pcard-edit-btn" title="Привʼязати до продукту в Сільпо" onclick="openRemap('${key}')">🔗</button>`;
-  actEl.innerHTML = `${openBtn}
+  return `${openBtn}
     <button class="pcard-edit-btn" title="Заповнити КБЖУ через AI" onclick="applyAIFillFood('${key}')">🤖</button>
     ${silpoLinkBtn}
     <button class="pcard-edit-btn" title="Редагувати КБЖУ" onclick="closePCard();showScreen('search');showFdTab('dir');startEditFood('${key}')">✏️</button>
     <button class="pcard-del-btn" title="Видалити" onclick="confirmDeletePCardFood('${key}')">🗑</button>`;
-
-  document.getElementById('pcardModal').classList.add('on');
-};
+}
 
 // Update the grams override on a single linked ingredient. Persists to
 // Firebase + recomputes recipe КБЖУ. Debounced via plain re-write — input
@@ -1916,8 +1944,7 @@ window.applyRemap = async function(idx) {
   }
   let nutr = null;
   try {
-    const r = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products/${p.slug}`, { headers: { accept: 'application/json' } });
-    const detail = await r.json();
+    const detail = await silpoProductDetail(p.slug);
     nutr = parseSilpoNutr(detail.attributeGroups);
   } catch(e) {}
   // If any nutrient is missing in the new Silpo product → reset all to 0.
@@ -1980,15 +2007,12 @@ async function _doRefetchAllFoods(keys) {
     try {
       let items = [];
       for (const query of [name, name.split(' ')[0]]) {
-        const sr = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products?limit=20&search=${encodeURIComponent(query)}`, { headers: { accept: 'application/json' } });
-        const sd = await sr.json();
-        items = sd.items || [];
+        items = await silpoSearch(query, 20);
         if (items.length) break;
       }
       const best = pickBestSilpo(items, name);
       if (best) {
-        const dr = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products/${best.slug}`, { headers: { accept: 'application/json' } });
-        const detail = await dr.json();
+        const detail = await silpoProductDetail(best.slug);
         const nutr = parseSilpoNutr(detail.attributeGroups);
         if (nutr) {
           FOODS[key] = {
@@ -2167,8 +2191,7 @@ window.applyNewFoodSilpo = async function(idx) {
   }
   let nutr = null;
   try {
-    const r = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products/${p.slug}`, { headers: { accept: 'application/json' } });
-    const detail = await r.json();
+    const detail = await silpoProductDetail(p.slug);
     nutr = parseSilpoNutr(detail.attributeGroups);
   } catch(e) {}
   // Stash Silpo metadata for saveFoodItem to read
@@ -2319,9 +2342,7 @@ async function enrichFoodsFromSilpo(progress) {
     try {
       let items = [];
       for (const query of [name, name.split(' ')[0]]) {
-        const sr = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products?limit=20&search=${encodeURIComponent(query)}`, { headers: { accept: 'application/json' } });
-        const sd = await sr.json();
-        items = sd.items || [];
+        items = await silpoSearch(query, 20);
         if (items.length) break;
       }
       const best = pickBestSilpo(items, name);
@@ -2710,17 +2731,8 @@ async function searchFood(q) {
   btn.disabled = true;
   cont.innerHTML = `<div class="sl"><div class="spin" style="margin:0 auto 8px"></div><br>Шукаємо в Сільпо «${q}»...</div>`;
   try {
-    const res = await fetch(
-      `${SILPO_API}/${SILPO_BRANCH}/products?limit=15&search=${encodeURIComponent(q)}`,
-      { headers: { accept: "application/json" } }
-    );
-    const data = await res.json();
-    const ql = q.toLowerCase();
-    const prods = (data.items || []).sort((a, b) => {
-      const ai = a.title.toLowerCase().indexOf(ql);
-      const bi = b.title.toLowerCase().indexOf(ql);
-      return (ai === -1 ? 9999 : ai) - (bi === -1 ? 9999 : bi);
-    });
+    const items = await silpoSearch(q, 15);
+    const prods = sortSilpoByQueryMatch(items, q);
     if (!prods.length) {
       cont.innerHTML = `<div class="sl">😔 Нічого не знайдено в Сільпо.</div>`;
       btn.disabled = false;
@@ -2756,10 +2768,7 @@ window.showFood = async function (i) {
   document.getElementById("mo").classList.add("on");
   // Fetch details
   try {
-    const r = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products/${p.slug}`, {
-      headers: { accept: "application/json" }
-    });
-    const detail = await r.json();
+    const detail = await silpoProductDetail(p.slug);
     const nutr = parseSilpoNutr(detail.attributeGroups);
     document.getElementById("mKcal").textContent = nutr?.kcal != null ? nutr.kcal + " ккал" : "—";
     document.getElementById("mProt").textContent = nutr?.protein != null ? nutr.protein + "г" : "—";
@@ -4256,9 +4265,7 @@ window.liSearchSilpo = async function() {
   const out = document.getElementById('liSilpoResults');
   out.innerHTML = `<div style="text-align:center;padding:12px;color:var(--muted);font-size:11px"><div class="spin" style="margin:0 auto 6px"></div>Шукаємо в Сільпо...</div>`;
   try {
-    const r = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products?limit=15&search=${encodeURIComponent(q)}`, { headers: { accept: 'application/json' } });
-    const data = await r.json();
-    const items = (data.items || []);
+    const items = await silpoSearch(q, 15);
     if (!items.length) {
       out.innerHTML = `<div style="text-align:center;padding:12px;color:var(--muted);font-size:11px">😔 Нічого не знайдено</div>`;
       return;
@@ -4287,8 +4294,7 @@ window.liPickSilpo = async function(idx) {
   showAIBusy('🔗 Додаємо продукт', p.title);
   try {
     // Fetch full nutrition
-    const detailR = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products/${p.slug}`, { headers: { accept: 'application/json' } });
-    const detail = await detailR.json();
+    const detail = await silpoProductDetail(p.slug);
     const nutr = parseSilpoNutr(detail.attributeGroups) || { kcal: 0, protein: 0, fat: 0, carbs: 0 };
     const food = {
       name: p.title,
@@ -4710,14 +4716,8 @@ window.apFetchSilpo = async function() {
   list.style.display = '';
   list.innerHTML = `<div style="text-align:center;padding:14px;color:var(--muted);font-size:11px"><div class="spin" style="margin:0 auto 6px"></div>Шукаємо «${escapeHtml(name)}»...</div>`;
   try {
-    const r = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products?limit=20&search=${encodeURIComponent(name)}`, { headers: { accept: 'application/json' } });
-    const data = await r.json();
-    const ql = name.toLowerCase();
-    const items = (data.items || []).slice().sort((a, b) => {
-      const ai = a.title.toLowerCase().indexOf(ql);
-      const bi = b.title.toLowerCase().indexOf(ql);
-      return (ai === -1 ? 9999 : ai) - (bi === -1 ? 9999 : bi);
-    });
+    const rawItems = await silpoSearch(name, 20);
+    const items = sortSilpoByQueryMatch(rawItems, name);
     _apSilpoResults = items;
     if (!items.length) {
       list.innerHTML = `<div style="text-align:center;padding:14px;color:var(--muted);font-size:11px">😔 Нічого не знайдено</div>`;
@@ -4744,8 +4744,7 @@ window.apPickSilpo = async function(idx) {
   if (!p) return;
   showAIBusy('🔗 Завантажуємо КБЖУ', p.title);
   try {
-    const detailR = await fetch(`${SILPO_API}/${SILPO_BRANCH}/products/${p.slug}`, { headers: { accept: 'application/json' } });
-    const detail = await detailR.json();
+    const detail = await silpoProductDetail(p.slug);
     const nutr = parseSilpoNutr(detail.attributeGroups);
     if (nutr) {
       document.getElementById('apKcal').value = nutr.kcal ?? '';
